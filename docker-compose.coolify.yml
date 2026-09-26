@@ -29,6 +29,8 @@ services:
 
   minio-init:
     image: cgr.dev/chainguard/minio-client:latest-dev
+    # One-shot job: without this, Coolify injects unless-stopped and reruns it forever.
+    restart: "no"
     depends_on:
       minio:
         condition: service_started
