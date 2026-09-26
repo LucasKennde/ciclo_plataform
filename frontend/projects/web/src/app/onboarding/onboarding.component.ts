@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -12,6 +13,16 @@ import {
   SyllabusSubject,
 } from 'api-client';
 import { icons } from '../shared/icons';
+
+function uploadErrorMessage(error: unknown): string {
+  const fallback = 'Não foi possível enviar o edital agora. Tente novamente em instantes.';
+  if (!(error instanceof HttpErrorResponse)) return fallback;
+  if (error.status === 413) return 'O PDF é maior que o limite de 30 MB.';
+  if (error.status === 422 && typeof error.error?.message === 'string') return error.error.message;
+  if (error.status === 401 || error.status === 403)
+    return 'Sua sessão expirou. Recarregue a página e entre novamente.';
+  return fallback;
+}
 
 @Component({
   standalone: true,
@@ -137,7 +148,7 @@ export class OnboardingPage implements OnDestroy {
     this.error.set('');
     this.api.uploadDocument(competition.id, file).subscribe({
       next: ({ jobId }) => this.watch(jobId),
-      error: () => this.fail('Não foi possível enviar o edital. Use um PDF de até 30 MB.'),
+      error: (error: unknown) => this.fail(uploadErrorMessage(error)),
     });
   }
 

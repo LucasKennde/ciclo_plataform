@@ -1,6 +1,7 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ApiClient, Competition, OnboardingState } from 'api-client';
 import { OnboardingPage } from './onboarding.component';
 
@@ -78,6 +79,48 @@ describe('OnboardingPage', () => {
     expect(api.updateOnboarding).toHaveBeenCalledWith({
       dismissed: false,
       competitionId: competition.id,
+    });
+  });
+
+  describe('document upload errors', () => {
+    const upload = (response: HttpErrorResponse): string => {
+      api.uploadDocument.mockReturnValue(throwError(() => response));
+      const fixture = TestBed.createComponent(OnboardingPage);
+      const component = fixture.componentInstance as any;
+      component.competition.set(competition);
+      const file = new File(['%PDF'], 'edital.pdf', { type: 'application/pdf' });
+
+      component.upload({ target: { files: [file] } } as unknown as Event);
+
+      expect(api.uploadDocument).toHaveBeenCalledWith(competition.id, file);
+      return component.error();
+    };
+
+    it('reports a file above the size limit on 413', () => {
+      expect(upload(new HttpErrorResponse({ status: 413 }))).toBe(
+        'O PDF é maior que o limite de 30 MB.',
+      );
+    });
+
+    it('shows the backend message on 422', () => {
+      const response = new HttpErrorResponse({
+        status: 422,
+        error: { code: 'study.invalid', message: 'Envie um arquivo PDF.' },
+      });
+
+      expect(upload(response)).toBe('Envie um arquivo PDF.');
+    });
+
+    it('asks the user to sign in again on 403', () => {
+      expect(upload(new HttpErrorResponse({ status: 403 }))).toBe(
+        'Sua sessão expirou. Recarregue a página e entre novamente.',
+      );
+    });
+
+    it('falls back to a generic message on server errors', () => {
+      expect(upload(new HttpErrorResponse({ status: 500 }))).toBe(
+        'Não foi possível enviar o edital agora. Tente novamente em instantes.',
+      );
     });
   });
 });
