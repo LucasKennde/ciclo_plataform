@@ -1,0 +1,184 @@
+name: ciclo-platform
+
+x-backend-environment: &backend-environment
+  DATABASE_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+  DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+  RABBITMQ_URL: "amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@${RABBITMQ_HOST:?RABBITMQ_HOST is required}:${RABBITMQ_PORT:-5672}"
+
+x-backend: &backend
+  restart: unless-stopped
+
+services:
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    expose:
+      - "9000"
+      - "9001"
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: [/bin/sh, -c]
+    command:
+      - mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && mc mb --ignore-existing local/ciclo
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    expose:
+      - "1025"
+      - "8025"
+
+  identity:
+    <<: *backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE: identity-service
+    depends_on:
+      mailpit:
+        condition: service_started
+    environment:
+      <<: *backend-environment
+      SERVER_PORT: 8081
+      DATABASE_URL: "jdbc:postgresql://${POSTGRES_HOST:?POSTGRES_HOST is required}:${POSTGRES_PORT:-5432}/ciclo_identity"
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@ciclo.local}
+      WEB_URL: ${WEB_URL:?WEB_URL is required}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@ciclo.local}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD is required}
+
+  study:
+    <<: *backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE: study-service
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *backend-environment
+      SERVER_PORT: 8082
+      DATABASE_URL: "jdbc:postgresql://${POSTGRES_HOST:?POSTGRES_HOST is required}:${POSTGRES_PORT:-5432}/ciclo_study"
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ciclo
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+
+  ai:
+    <<: *backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE: ai-service
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *backend-environment
+      SERVER_PORT: 8083
+      DATABASE_URL: "jdbc:postgresql://${POSTGRES_HOST:?POSTGRES_HOST is required}:${POSTGRES_PORT:-5432}/ciclo_ai"
+      REDIS_HOST: ${REDIS_HOST:?REDIS_HOST is required}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ciclo
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      AI_KEYS_MASTER_KEY: ${AI_KEYS_MASTER_KEY:?AI_KEYS_MASTER_KEY is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+  admin-api:
+    <<: *backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE: admin-service
+    depends_on:
+      - identity
+      - ai
+    environment:
+      <<: *backend-environment
+      SERVER_PORT: 8084
+      DATABASE_URL: "jdbc:postgresql://${POSTGRES_HOST:?POSTGRES_HOST is required}:${POSTGRES_PORT:-5432}/ciclo_admin"
+      IDENTITY_URL: http://identity:8081
+      AI_URL: http://ai:8083
+
+  gateway:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        SERVICE: gateway-service
+    depends_on:
+      - identity
+      - study
+      - ai
+      - admin-api
+    environment:
+      SERVER_PORT: 8080
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@${RABBITMQ_HOST:?RABBITMQ_HOST is required}:${RABBITMQ_PORT:-5672}"
+      IDENTITY_URL: http://identity:8081
+      STUDY_URL: http://study:8082
+      AI_URL: http://ai:8083
+      ADMIN_URL: http://admin-api:8084
+    expose:
+      - "8080"
+
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP: web
+    depends_on:
+      - gateway
+    expose:
+      - "80"
+
+  admin-web:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        APP: admin
+    depends_on:
+      - gateway
+    expose:
+      - "80"
+
+volumes:
+  minio_data:

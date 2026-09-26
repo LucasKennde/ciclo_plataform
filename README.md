@@ -19,6 +19,25 @@ docker compose up --build
 
 O administrador local inicial é criado pelas variáveis `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD`.
 
+## Implantação no Coolify
+
+O arquivo `docker-compose.yml` é destinado ao desenvolvimento local e inicia
+PostgreSQL, RabbitMQ e Redis no mesmo projeto. Para produção no Coolify, use
+`docker-compose.coolify.yml`, que conecta os serviços Java a recursos externos e
+mantém apenas MinIO e Mailpit na stack da aplicação.
+
+1. Crie PostgreSQL, RabbitMQ e Redis como recursos separados.
+2. Crie no PostgreSQL os bancos `ciclo_identity`, `ciclo_study`, `ciclo_ai` e
+   `ciclo_admin`.
+3. Configure no Coolify as variáveis descritas em `.env.coolify.example`, usando
+   os hosts e portas publicados pelos recursos separados.
+4. Defina **Docker Compose Location** como `/docker-compose.coolify.yml`.
+5. Configure os domínios dos serviços `gateway`, `web` e `admin-web`.
+
+O Compose de produção não publica portas diretamente no host. O proxy do Coolify
+encaminha os domínios para as portas declaradas em `expose`, evitando conflitos
+com outras aplicações executadas na mesma VPS.
+
 ## E-mail e confirmação de cadastro
 
 No ambiente local, as mensagens são capturadas pelo Mailpit e não são encaminhadas
