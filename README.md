@@ -24,7 +24,9 @@ O administrador local inicial é criado pelas variáveis `BOOTSTRAP_ADMIN_EMAIL`
 O arquivo `docker-compose.yml` é destinado ao desenvolvimento local e inicia
 PostgreSQL, RabbitMQ e Redis no mesmo projeto. Para produção no Coolify, use
 `docker-compose.coolify.yml`, que conecta os serviços Java a recursos externos e
-mantém apenas MinIO e Mailpit na stack da aplicação.
+mantém apenas MinIO e Mailpit na stack da aplicação. As imagens do MinIO vêm da
+Chainguard (`cgr.dev`), porque as oficiais foram removidas do Docker Hub e do
+quay.io em setembro de 2026.
 
 1. Crie PostgreSQL, RabbitMQ e Redis como recursos separados.
 2. Crie no PostgreSQL os bancos `ciclo_identity`, `ciclo_study`, `ciclo_ai` e

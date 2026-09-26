@@ -37,20 +37,35 @@ services:
     volumes: [redis_data:/data]
     healthcheck: { test: [CMD-SHELL, "redis-cli -a '${REDIS_PASSWORD:-ciclo}' ping"], interval: 5s, timeout: 5s, retries: 20 }
     ports: ["6379:6379"]
+  # MinIO removed minio/minio and minio/mc from Docker Hub and quay.io in Sep 2026;
+  # the Chainguard builds are the drop-in replacement.
   minio:
-    image: minio/minio:latest
-    command: server /data --console-address :9001
+    image: cgr.dev/chainguard/minio:latest
+    # The image runs as UID 65532, but minio_data is root-owned.
+    user: "0"
+    command: [server, /data, --console-address, ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
     volumes: [minio_data:/data]
-    healthcheck: { test: [CMD, curl, -f, http://localhost:9000/minio/health/live], interval: 5s, timeout: 5s, retries: 20 }
     ports: ["9000:9000", "9001:9001"]
   minio-init:
-    image: minio/mc:latest
-    depends_on: { minio: { condition: service_healthy } }
+    image: cgr.dev/chainguard/minio-client:latest-dev
+    depends_on: { minio: { condition: service_started } }
     entrypoint: [/bin/sh, -c]
-    command: ["mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minio} ${MINIO_ROOT_PASSWORD:-minio123} && mc mb --ignore-existing local/ciclo"]
+    command:
+      - |
+        i=0
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do
+          i=$$((i + 1))
+          [ "$$i" -ge 60 ] && exit 1
+          sleep 2
+        done
+        mc mb --ignore-existing local/ciclo
+    environment:
+      MC_CONFIG_DIR: /tmp/.mc
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
   mailpit:
     image: axllent/mailpit:latest
     ports: ["1025:1025", "8025:8025"]
