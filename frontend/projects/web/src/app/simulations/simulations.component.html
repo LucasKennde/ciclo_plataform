@@ -1,0 +1,313 @@
+<section class="animate-fade-in">
+  <header class="flex flex-wrap items-end justify-between gap-5">
+    <div>
+      <p class="text-xs font-extrabold tracking-[0.14em] text-faint">SIMULADOS</p>
+      <h1 class="mt-1 text-4xl font-extrabold">Seu desempenho.</h1>
+      <p class="mt-2 text-sm text-muted">
+        {{ simulations().length }} simulados · {{ finished().length }} concluídos
+      </p>
+    </div>
+    <div class="flex gap-2">
+      @if (competitions().length > 1) {
+        <select
+          [value]="competition()?.id"
+          (change)="selectById($any($event.target).value)"
+          class="rounded-xl border border-line bg-white px-4 py-3 text-sm font-bold"
+        >
+          @for (item of competitions(); track item.id) {
+            <option [value]="item.id">{{ item.title }}</option>
+          }
+        </select>
+      }
+      <button
+        (click)="createOpen.set(true)"
+        [disabled]="!competition()"
+        class="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-extrabold text-white"
+      >
+        <lucide-icon [img]="icons.Plus" [size]="17" /> Novo simulado
+      </button>
+    </div>
+  </header>
+  <div class="mt-8 grid gap-5 lg:grid-cols-[1fr_2fr]">
+    <article class="rounded-3xl bg-primary p-7 text-white">
+      <p class="text-xs font-extrabold tracking-widest text-white/55">DESEMPENHO GERAL</p>
+      <b class="mt-6 block text-6xl">{{ (average() * 100).toFixed(0) }}%</b>
+      <p class="mt-2 text-sm text-white/65">média de acertos</p>
+      <div class="mt-8 flex h-28 items-end gap-2">
+        @for (simulation of finished().slice(-8); track simulation.id) {
+          <div
+            class="flex-1 rounded-t-md bg-white/35"
+            [style.height.%]="Math.max(8, accuracy(simulation) * 100)"
+          ></div>
+        }
+      </div>
+    </article>
+    <article class="rounded-3xl border border-line bg-white p-7">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">EVOLUÇÃO</p>
+          <h2 class="mt-1 text-2xl font-extrabold">Treino consistente</h2>
+        </div>
+        <lucide-icon [img]="icons.TrendingUp" class="text-primary" />
+      </div>
+      <p class="mt-6 text-sm leading-7 text-muted">
+        Cada simulado atualiza sua leitura de desempenho e ajuda a priorizar os próximos tópicos do
+        ciclo.
+      </p>
+      <div class="mt-5 grid grid-cols-3 gap-3 text-center">
+        <div class="rounded-xl bg-bg p-4">
+          <b class="text-xl">{{ finished().length }}</b>
+          <p class="text-[11px] text-muted">concluídos</p>
+        </div>
+        <div class="rounded-xl bg-bg p-4">
+          <b class="text-xl">{{ active().length }}</b>
+          <p class="text-[11px] text-muted">em andamento</p>
+        </div>
+        <div class="rounded-xl bg-bg p-4">
+          <b class="text-xl">{{ totalQuestions() }}</b>
+          <p class="text-[11px] text-muted">questões</p>
+        </div>
+      </div>
+    </article>
+  </div>
+  @if (!simulations().length) {
+    <div class="mt-8 rounded-3xl border border-line bg-white p-10 text-center">
+      <span
+        class="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-primary-soft text-primary"
+        ><lucide-icon [img]="icons.FileText" [size]="30"
+      /></span>
+      <h2 class="mt-5 text-2xl font-extrabold">Nenhum simulado ainda</h2>
+      <p class="mt-2 text-sm text-muted">
+        Seu primeiro simulado ajuda o Ciclo a entender onde você precisa melhorar.
+      </p>
+      <button
+        (click)="createOpen.set(true)"
+        class="mt-6 rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
+      >
+        Criar primeiro simulado
+      </button>
+    </div>
+  }
+  @if (active().length) {
+    <div class="mt-10">
+      <p class="text-xs font-extrabold tracking-widest text-faint">EM ANDAMENTO</p>
+      <h2 class="mt-1 text-2xl font-extrabold">Continuar</h2>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        @for (simulation of active(); track simulation.id) {
+          <a
+            [routerLink]="['/app/simulado', simulation.id]"
+            class="rounded-2xl border border-line bg-white p-5 hover:border-primary/40"
+            ><span class="rounded-full bg-warning/10 px-3 py-1 text-xs font-bold text-warning"
+              >Em andamento</span
+            >
+            <h3 class="mt-4 font-extrabold">{{ simulation.title || 'Simulado' }}</h3>
+            <p class="mt-1 text-sm text-muted">
+              {{ simulation.items.length }} questões · iniciado
+              {{ simulation.startedAt | date: 'short' }}
+            </p></a
+          >
+        }
+      </div>
+    </div>
+  }
+  @if (finished().length) {
+    <div class="mt-10">
+      <p class="text-xs font-extrabold tracking-widest text-faint">CONCLUÍDOS</p>
+      <h2 class="mt-1 text-2xl font-extrabold">Histórico</h2>
+      <div class="mt-4 grid gap-3">
+        @for (simulation of finished(); track simulation.id) {
+          <a
+            [routerLink]="['/app/simulado', simulation.id]"
+            class="flex items-center gap-4 rounded-2xl border border-line bg-white p-5 hover:border-primary/40"
+            ><span
+              class="grid h-12 w-12 place-items-center rounded-full bg-primary-soft font-extrabold text-primary"
+              >{{ (accuracy(simulation) * 100).toFixed(0) }}</span
+            ><span class="min-w-0 flex-1"
+              ><b class="block truncate">{{ simulation.title || 'Simulado' }}</b
+              ><small class="text-muted"
+                >{{ simulation.items.length }} questões ·
+                {{ simulation.finishedAt | date: 'short' }}</small
+              ></span
+            ><lucide-icon [img]="icons.ChevronRight" [size]="18" class="text-faint"
+          /></a>
+        }
+      </div>
+    </div>
+  }
+  <div class="mt-12 flex items-end justify-between">
+    <div>
+      <p class="text-xs font-extrabold tracking-widest text-faint">OUTRAS BANCAS</p>
+      <h2 class="mt-1 text-2xl font-extrabold">Simulados enviados</h2>
+    </div>
+    <button
+      (click)="uploadOpen.set(true)"
+      class="flex items-center gap-2 rounded-xl border border-line bg-white px-4 py-2.5 text-sm font-bold"
+    >
+      <lucide-icon [img]="icons.Upload" [size]="16" /> Enviar simulado
+    </button>
+  </div>
+  <div class="mt-4 grid gap-3">
+    @for (source of sources(); track source.id) {
+      <button
+        (click)="openReview(source)"
+        class="flex items-center gap-4 rounded-2xl border border-line bg-white p-5 text-left"
+      >
+        <span class="grid h-11 w-11 place-items-center rounded-xl bg-primary-soft text-primary"
+          ><lucide-icon [img]="icons.FileText" [size]="19" /></span
+        ><span class="flex-1"
+          ><b class="block">{{ source.fileName }}</b
+          ><small class="text-muted"
+            >{{ source.board || 'Banca em análise' }} · {{ source.questionCount }} questões</small
+          ></span
+        ><span class="rounded-full bg-primary-soft px-3 py-1 text-xs font-bold text-primary">{{
+          source.status
+        }}</span>
+      </button>
+    } @empty {
+      <p class="rounded-2xl border border-dashed border-line p-6 text-center text-sm text-muted">
+        Envie provas em PDF para ampliar seu banco de questões.
+      </p>
+    }
+  </div>
+</section>
+@if (createOpen()) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="createOpen.set(false)"
+  >
+    <form
+      [formGroup]="form"
+      (ngSubmit)="start()"
+      (click)="$event.stopPropagation()"
+      class="grid w-full max-w-lg gap-5 rounded-3xl bg-white p-7"
+    >
+      <header class="flex justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">NOVO SIMULADO</p>
+          <h2 class="mt-1 text-2xl font-extrabold">O que você quer treinar?</h2>
+        </div>
+        <button type="button" (click)="createOpen.set(false)">
+          <lucide-icon [img]="icons.X" />
+        </button>
+      </header>
+      <label class="grid gap-2 text-sm font-bold"
+        >Disciplina<select
+          formControlName="subjectId"
+          class="rounded-xl border border-line px-4 py-3"
+        >
+          <option value="">Todas as disciplinas</option>
+          @for (subject of syllabus()?.subjects ?? []; track subject.id) {
+            <option [value]="subject.id">{{ subject.name }}</option>
+          }
+        </select></label
+      >
+      <div class="grid grid-cols-2 gap-4">
+        <label class="grid gap-2 text-sm font-bold"
+          >Dificuldade<input
+            type="number"
+            min="1"
+            max="5"
+            formControlName="difficulty"
+            class="rounded-xl border border-line px-4 py-3" /></label
+        ><label class="grid gap-2 text-sm font-bold"
+          >Questões<input
+            type="number"
+            min="1"
+            max="20"
+            formControlName="count"
+            class="rounded-xl border border-line px-4 py-3"
+        /></label>
+      </div>
+      <button [disabled]="busy()" class="rounded-xl bg-primary px-5 py-3 font-extrabold text-white">
+        {{ busy() ? 'Preparando…' : 'Começar simulado' }}
+      </button>
+    </form>
+  </div>
+}
+@if (uploadOpen()) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="uploadOpen.set(false)"
+  >
+    <section (click)="$event.stopPropagation()" class="w-full max-w-lg rounded-3xl bg-white p-7">
+      <header class="flex justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">SIMULADOS DE BANCAS</p>
+          <h2 class="mt-1 text-2xl font-extrabold">Enviar simulado</h2>
+        </div>
+        <button (click)="uploadOpen.set(false)"><lucide-icon [img]="icons.X" /></button>
+      </header>
+      <label
+        class="mt-6 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-line p-10 text-center hover:border-primary"
+        ><lucide-icon [img]="icons.Upload" [size]="28" class="text-primary" /><b class="mt-3"
+          >Escolher PDF</b
+        ><span class="mt-1 text-xs text-muted">A IA extrairá as questões e o gabarito</span
+        ><input type="file" accept="application/pdf" class="hidden" (change)="upload($event)"
+      /></label>
+    </section>
+  </div>
+}
+@if (reviewOpen()) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="reviewOpen.set(false)"
+  >
+    <section
+      (click)="$event.stopPropagation()"
+      class="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-7"
+    >
+      <header class="flex justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">REVISAR QUESTÕES</p>
+          <h2 class="mt-1 text-2xl font-extrabold">{{ review().length }} questões extraídas</h2>
+        </div>
+        <button (click)="reviewOpen.set(false)"><lucide-icon [img]="icons.X" /></button>
+      </header>
+      <button
+        (click)="classify()"
+        class="mt-5 rounded-xl border border-primary px-4 py-2 text-sm font-bold text-primary"
+      >
+        Classificar por tópico
+      </button>
+      <div class="mt-5 grid gap-4">
+        @for (question of review(); track question.id; let index = $index) {
+          <article class="rounded-2xl border border-line p-5">
+            <div class="flex justify-between gap-4">
+              <b>{{ index + 1 }}. {{ question.statement }}</b
+              ><span
+                class="rounded-full px-2 py-1 text-[10px] font-bold"
+                [class]="
+                  question.status === 'PUBLISHED'
+                    ? 'bg-success/10 text-success'
+                    : question.status === 'REJECTED'
+                      ? 'bg-danger/10 text-danger'
+                      : 'bg-warning/10 text-warning'
+                "
+                >{{ question.status }}</span
+              >
+            </div>
+            <ol class="mt-3 grid gap-2 pl-5 text-sm text-muted">
+              @for (alternative of question.alternatives; track $index) {
+                <li [class.font-bold]="$index === question.correctIndex">{{ alternative }}</li>
+              }
+            </ol>
+            <p class="mt-3 rounded-xl bg-bg p-3 text-sm">{{ question.explanation }}</p>
+            <div class="mt-4 flex gap-2">
+              <button
+                (click)="decide(question, 'publish')"
+                class="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white"
+              >
+                Publicar</button
+              ><button
+                (click)="decide(question, 'reject')"
+                class="rounded-lg border border-danger px-3 py-2 text-xs font-bold text-danger"
+              >
+                Rejeitar
+              </button>
+            </div>
+          </article>
+        }
+      </div>
+    </section>
+  </div>
+}

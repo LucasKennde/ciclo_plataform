@@ -1,0 +1,103 @@
+<main class="flex min-h-screen bg-bg">
+  <aside
+    class="sticky top-0 hidden h-screen w-[268px] shrink-0 flex-col border-r border-line bg-surface lg:flex"
+  >
+    <a routerLink="/app" class="flex items-center gap-2.5 px-7 pb-8 pt-8">
+      <span
+        class="grid h-9 w-9 place-items-center rounded-xl bg-primary text-lg font-extrabold text-white"
+        >C</span
+      >
+      <span class="text-[17px] font-extrabold tracking-tight">Ciclo</span>
+    </a>
+    <nav class="grid gap-1 px-4">
+      @for (item of nav; track item.route) {
+        <a
+          [routerLink]="item.route"
+          routerLinkActive="!bg-primary !text-white"
+          [routerLinkActiveOptions]="{ exact: item.exact || false }"
+          class="flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-bold text-muted transition hover:bg-primary/5 hover:text-text"
+        >
+          <lucide-icon [img]="item.icon" [size]="18" />
+          {{ item.label }}
+        </a>
+      }
+    </nav>
+    <div class="mt-8 px-7">
+      <p class="mb-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-faint">
+        Meu concurso
+      </p>
+      <a routerLink="/app/plano" class="text-sm font-bold hover:text-primary">Minha preparação</a>
+    </div>
+    <div class="mt-auto border-t border-line px-4 py-4">
+      <div class="flex items-center gap-3 rounded-xl px-2 py-2">
+        <span
+          class="grid h-10 w-10 place-items-center rounded-full bg-primary/10 text-sm font-extrabold text-primary"
+          >{{ initials() }}</span
+        >
+        <div class="min-w-0">
+          <p class="truncate text-sm font-extrabold">
+            {{ auth.user()?.displayName || 'Estudante' }}
+          </p>
+          <p class="truncate text-xs text-muted">{{ auth.user()?.email }}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        (click)="auth.logout()"
+        class="mt-1 w-full rounded-lg px-2 py-2 text-left text-xs font-bold text-muted hover:bg-danger/5 hover:text-danger"
+      >
+        Sair da conta
+      </button>
+    </div>
+  </aside>
+  <section class="min-w-0 flex-1 px-[clamp(1.25rem,4vw,4rem)] py-8 pb-28 lg:py-12">
+    <router-outlet />
+  </section>
+  <nav
+    class="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-line bg-surface/95 backdrop-blur lg:hidden"
+  >
+    @for (item of nav.slice(0, 5); track item.route) {
+      <a
+        [routerLink]="item.route"
+        routerLinkActive="!text-primary"
+        [routerLinkActiveOptions]="{ exact: item.exact || false }"
+        class="flex flex-col items-center gap-1 py-3 text-[10px] font-extrabold text-muted"
+      >
+        <lucide-icon [img]="item.icon" [size]="20" />
+        {{
+          item.label === 'Meu plano' ? 'Plano' : item.label === 'Flashcards' ? 'Cards' : item.label
+        }}
+      </a>
+    }
+    <button
+      type="button"
+      (click)="moreOpen.set(!moreOpen())"
+      class="flex flex-col items-center gap-1 py-3 text-[10px] font-extrabold text-muted"
+    >
+      <lucide-icon [img]="icons.MoreHorizontal" [size]="20" /> Mais
+    </button>
+  </nav>
+  @if (moreOpen()) {
+    <div class="fixed inset-0 z-30 bg-text/20 lg:hidden" (click)="moreOpen.set(false)">
+      <div
+        class="absolute inset-x-4 bottom-20 grid gap-1 rounded-2xl border border-line bg-surface p-2 shadow-xl"
+        (click)="$event.stopPropagation()"
+      >
+        <a
+          routerLink="/app/progresso"
+          (click)="moreOpen.set(false)"
+          class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold"
+        >
+          <lucide-icon [img]="icons.TrendingUp" [size]="18" /> Progresso
+        </a>
+        <button
+          type="button"
+          (click)="auth.logout()"
+          class="flex items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-bold text-danger"
+        >
+          <lucide-icon [img]="icons.LogOut" [size]="18" /> Sair da conta
+        </button>
+      </div>
+    </div>
+  }
+</main>

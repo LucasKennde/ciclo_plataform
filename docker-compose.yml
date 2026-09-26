@@ -1,0 +1,182 @@
+name: ciclo-platform
+x-backend: &backend
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    rabbitmq: { condition: service_healthy }
+    migration-preflight: { condition: service_completed_successfully }
+  environment: &backend-env
+    DATABASE_USER: ${POSTGRES_USER:-ciclo}
+    DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-ciclo}
+    JWT_SECRET: ${JWT_SECRET:-local-development-secret-with-at-least-32-bytes}
+    RABBITMQ_URL: amqp://${RABBITMQ_USER:-ciclo}:${RABBITMQ_PASSWORD:-ciclo}@rabbitmq:5672
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ciclo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ciclo}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+    healthcheck: { test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d postgres"], interval: 5s, timeout: 5s, retries: 20 }
+    ports: ["5432:5432"]
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ciclo}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-ciclo}
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    healthcheck: { test: [CMD, rabbitmq-diagnostics, -q, ping], interval: 5s, timeout: 5s, retries: 20 }
+    ports: ["5672:5672", "15672:15672"]
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --requirepass, "${REDIS_PASSWORD:-ciclo}"]
+    volumes: [redis_data:/data]
+    healthcheck: { test: [CMD-SHELL, "redis-cli -a '${REDIS_PASSWORD:-ciclo}' ping"], interval: 5s, timeout: 5s, retries: 20 }
+    ports: ["6379:6379"]
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    volumes: [minio_data:/data]
+    healthcheck: { test: [CMD, curl, -f, http://localhost:9000/minio/health/live], interval: 5s, timeout: 5s, retries: 20 }
+    ports: ["9000:9000", "9001:9001"]
+  minio-init:
+    image: minio/mc:latest
+    depends_on: { minio: { condition: service_healthy } }
+    entrypoint: [/bin/sh, -c]
+    command: ["mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minio} ${MINIO_ROOT_PASSWORD:-minio123} && mc mb --ignore-existing local/ciclo"]
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["1025:1025", "8025:8025"]
+
+  migration-preflight:
+    image: postgres:17-alpine
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-ciclo}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ciclo}
+    volumes: [migration_backups:/backups]
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        set -eu
+        failed=0
+        stamp=$$(date -u +%Y%m%dT%H%M%SZ)
+        for database in ciclo_identity ciclo_study ciclo_ai ciclo_admin; do
+          table_count=$$(psql -d "$$database" -Atc "select count(*) from information_schema.tables where table_schema = 'public' and table_name <> 'flyway_schema_history'")
+          has_history=$$(psql -d "$$database" -Atc "select to_regclass('public.flyway_schema_history') is not null")
+          if [ "$$table_count" -gt 0 ] && [ "$$has_history" != "t" ]; then
+            mkdir -p "/backups/$$stamp"
+            pg_dump -Fc -d "$$database" -f "/backups/$$stamp/$$database.dump"
+            echo "Schema parcial em $$database sem flyway_schema_history. Backup salvo em migration_backups:/backups/$$stamp/$$database.dump; inicialização interrompida." >&2
+            failed=1
+          fi
+        done
+        exit "$$failed"
+
+  identity:
+    <<: *backend
+    build: { context: ., dockerfile: backend/Dockerfile, args: { SERVICE: identity-service } }
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8081
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ciclo_identity
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@ciclo.local}
+      WEB_URL: ${WEB_URL:-http://localhost:4200}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@ciclo.local}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe123!}
+  study:
+    <<: *backend
+    build: { context: ., dockerfile: backend/Dockerfile, args: { SERVICE: study-service } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      migration-preflight: { condition: service_completed_successfully }
+      minio-init: { condition: service_completed_successfully }
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8082
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ciclo_study
+      S3_ENDPOINT: http://minio:9000
+  ai:
+    <<: *backend
+    build: { context: ., dockerfile: backend/Dockerfile, args: { SERVICE: ai-service } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      migration-preflight: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8083
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ciclo_ai
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ciclo}
+      S3_ENDPOINT: http://minio:9000
+      AI_KEYS_MASTER_KEY: ${AI_KEYS_MASTER_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  admin-api:
+    <<: *backend
+    build: { context: ., dockerfile: backend/Dockerfile, args: { SERVICE: admin-service } }
+    environment:
+      <<: *backend-env
+      SERVER_PORT: 8084
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ciclo_admin
+      IDENTITY_URL: http://identity:8081
+      AI_URL: http://ai:8083
+  gateway:
+    restart: unless-stopped
+    build: { context: ., dockerfile: backend/Dockerfile, args: { SERVICE: gateway-service } }
+    depends_on: [identity, study, ai, admin-api]
+    environment:
+      SERVER_PORT: 8080
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-ciclo}:${RABBITMQ_PASSWORD:-ciclo}@rabbitmq:5672
+      IDENTITY_URL: http://identity:8081
+      STUDY_URL: http://study:8082
+      AI_URL: http://ai:8083
+      ADMIN_URL: http://admin-api:8084
+    ports: ["8080:8080"]
+  web:
+    build: { context: ., dockerfile: frontend/Dockerfile, args: { APP: web } }
+    depends_on: [gateway]
+    ports: ["4200:80"]
+  admin-web:
+    build: { context: ., dockerfile: frontend/Dockerfile, args: { APP: admin } }
+    depends_on: [gateway]
+    ports: ["4201:80"]
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: [observability]
+    volumes: ["./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+  grafana:
+    image: grafana/grafana:latest
+    profiles: [observability]
+    ports: ["3000:3000"]
+    volumes: [grafana_data:/var/lib/grafana]
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  minio_data:
+  grafana_data:
+  migration_backups:

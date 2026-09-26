@@ -1,0 +1,116 @@
+<section class="animate-fade-in">
+  <header>
+    <p class="text-xs font-extrabold tracking-[0.14em] text-faint">PROGRESSO</p>
+    <h1 class="mt-1 text-4xl font-extrabold">Sua evolução.</h1>
+    <p class="mt-2 text-sm text-muted">Consistência visível, semana após semana.</p>
+  </header>
+  <div class="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    @for (
+      metric of [
+        ['XP', data()?.xp ?? 0],
+        ['Nível', data()?.level ?? 1],
+        ['Sequência', (data()?.streak ?? 0) + ' dias'],
+        ['Precisão', ((data()?.averageAccuracy ?? 0) * 100).toFixed(0) + '%'],
+      ];
+      track metric[0]
+    ) {
+      <article class="rounded-2xl border border-line bg-white p-5">
+        <p class="text-xs font-bold text-muted">{{ metric[0] }}</p>
+        <b class="mt-1 block text-3xl">{{ metric[1] }}</b>
+      </article>
+    }
+  </div>
+  <div class="mt-5 grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
+    <article class="rounded-3xl border border-line bg-white p-7">
+      <p class="text-xs font-extrabold tracking-widest text-faint">ESTA SEMANA</p>
+      <h2 class="mt-1 text-2xl font-extrabold">Tempo de estudo</h2>
+      <div class="mt-8 flex h-52 items-end gap-3">
+        @for (day of week(); track day.label + $index) {
+          <div class="flex h-full flex-1 flex-col justify-end text-center">
+            <span class="mb-2 text-[10px] font-bold text-muted">{{
+              day.minutes ? day.minutes + 'm' : ''
+            }}</span>
+            <div
+              class="mx-auto w-2/3 rounded-t-md bg-primary"
+              [style.height.%]="(day.minutes / maxMinutes()) * 100"
+            ></div>
+            <span class="mt-2 text-xs font-bold text-muted">{{ day.label }}</span>
+          </div>
+        }
+      </div>
+    </article>
+    <article class="rounded-3xl bg-primary p-7 text-white">
+      <div class="flex items-center gap-3">
+        <span class="grid h-11 w-11 place-items-center rounded-xl bg-white/10"
+          ><lucide-icon [img]="icons.Flame"
+        /></span>
+        <div>
+          <p class="text-xs font-bold text-white/55">SEQUÊNCIA ATUAL</p>
+          <b class="text-3xl">{{ data()?.streak ?? 0 }} dias</b>
+        </div>
+      </div>
+      <p class="mt-8 text-sm leading-7 text-white/70">
+        Complete uma sessão ou um simulado por dia para manter sua sequência ativa.
+      </p>
+      <div class="mt-6 h-2 rounded-full bg-white/15">
+        <div
+          class="h-full rounded-full bg-coral"
+          [style.width.%]="Math.min(100, ((data()?.streak ?? 0) / 7) * 100)"
+        ></div>
+      </div>
+    </article>
+  </div>
+  <div class="mt-10 grid gap-5 xl:grid-cols-2">
+    <article class="rounded-3xl border border-line bg-white p-7">
+      <p class="text-xs font-extrabold tracking-widest text-faint">DOMÍNIO</p>
+      <h2 class="mt-1 text-2xl font-extrabold">Seu mapa de preparação</h2>
+      <div class="mt-6 grid gap-5">
+        @for (subject of subjects(); track subject.name) {
+          <div>
+            <div class="flex justify-between text-sm">
+              <b>{{ subject.name }}</b
+              ><span class="font-bold text-primary">{{ subject.percent }}%</span>
+            </div>
+            <div class="mt-2 h-2 rounded-full bg-line">
+              <div class="h-full rounded-full bg-primary" [style.width.%]="subject.percent"></div>
+            </div>
+          </div>
+        } @empty {
+          <p class="text-sm text-muted">Gere e execute um plano para acompanhar seu domínio.</p>
+        }
+      </div>
+    </article>
+    <article class="rounded-3xl border border-line bg-white p-7">
+      <p class="text-xs font-extrabold tracking-widest text-faint">CONQUISTAS</p>
+      <h2 class="mt-1 text-2xl font-extrabold">Badges</h2>
+      <div class="mt-6 grid grid-cols-2 gap-3">
+        @for (badge of badges(); track badge.name) {
+          <div
+            class="rounded-2xl border p-4"
+            [class]="
+              badge.unlocked ? 'border-primary/20 bg-primary-soft' : 'border-line opacity-45'
+            "
+          >
+            <span class="text-2xl">{{ badge.icon }}</span
+            ><b class="mt-2 block text-sm">{{ badge.name }}</b
+            ><small class="text-muted">{{ badge.unlocked ? 'Conquistado' : 'Bloqueado' }}</small>
+          </div>
+        }
+      </div>
+    </article>
+  </div>
+  <article class="mt-5 rounded-3xl border border-line bg-white p-7">
+    <p class="text-xs font-extrabold tracking-widest text-faint">NÍVEL {{ data()?.level ?? 1 }}</p>
+    <div class="mt-3 flex items-end justify-between">
+      <h2 class="text-2xl font-extrabold">Continue avançando.</h2>
+      <b class="text-primary">{{ levelProgress().toFixed(0) }}%</b>
+    </div>
+    <div class="mt-4 h-3 rounded-full bg-line">
+      <div class="h-full rounded-full bg-coral" [style.width.%]="levelProgress()"></div>
+    </div>
+    <p class="mt-3 text-sm text-muted">
+      {{ data()?.completedSessions ?? 0 }} sessões concluídas e
+      {{ data()?.totalAnswered ?? 0 }} questões respondidas.
+    </p>
+  </article>
+</section>

@@ -1,0 +1,21 @@
+@import 'tailwindcss';
+@source "../../ui/src";
+@source "../../auth/src";
+
+@theme {
+  --color-primary: #164c3f;
+  --color-primary-hover: #103c32;
+  --color-primary-soft: #e7f0ec;
+  --color-bg: #f7f7f2;
+  --color-surface: #ffffff;
+  --color-text: #17231f;
+  --color-muted: #66756f;
+  --color-faint: #9aa8a2;
+  --color-success: #1f8a63;
+  --color-warning: #c4862d;
+  --color-danger: #c55245;
+  --color-line: #e4e7e3;
+  --color-coral: #c55245;
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+}

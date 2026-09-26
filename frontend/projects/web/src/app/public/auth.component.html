@@ -1,0 +1,78 @@
+<main class="grid min-h-screen bg-bg lg:grid-cols-2">
+  <section class="hidden flex-col justify-between bg-primary p-12 text-white lg:flex">
+    <a routerLink="/" class="flex items-center gap-2.5 text-lg font-extrabold"
+      ><span class="grid h-10 w-10 place-items-center rounded-xl bg-white text-primary">C</span
+      >Ciclo</a
+    >
+    <blockquote class="max-w-xl text-5xl font-extrabold leading-tight">
+      “Constância transforma edital em aprovação.”
+    </blockquote>
+    <p class="text-sm text-white/60">Um plano vivo para uma meta real.</p>
+  </section>
+  <section class="grid place-items-center px-6 py-12">
+    <form
+      [formGroup]="form"
+      (ngSubmit)="submit()"
+      class="grid w-full max-w-md gap-5 rounded-3xl border border-line bg-surface p-7 shadow-sm sm:p-10"
+    >
+      <a routerLink="/" class="mb-3 flex items-center gap-2 text-lg font-extrabold lg:hidden"
+        ><span class="grid h-9 w-9 place-items-center rounded-xl bg-primary text-white">C</span
+        >Ciclo</a
+      >
+      <div>
+        <p class="text-xs font-extrabold tracking-[0.14em] text-faint">
+          {{ registering() ? 'CRIAR CONTA' : 'BEM-VINDO DE VOLTA' }}
+        </p>
+        <h1 class="mt-2 text-3xl font-extrabold">
+          {{ registering() ? 'Comece seu ciclo.' : 'Entre na sua conta.' }}
+        </h1>
+      </div>
+      @if (registering()) {
+        <label class="grid gap-2 text-sm font-bold"
+          >Nome<input
+            formControlName="displayName"
+            class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+        /></label>
+        <label class="grid gap-2 text-sm font-bold"
+          >Nome do espaço<input
+            formControlName="workspaceName"
+            class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+        /></label>
+      }
+      <label class="grid gap-2 text-sm font-bold"
+        >E-mail<input
+          type="email"
+          formControlName="email"
+          class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+      /></label>
+      <label class="grid gap-2 text-sm font-bold"
+        >Senha<input
+          type="password"
+          formControlName="password"
+          class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+      /></label>
+      @if (error()) {
+        <p role="alert" class="rounded-xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger">
+          {{ error() }}
+        </p>
+      }
+      @if (success()) {
+        <p class="rounded-xl bg-success/10 px-4 py-3 text-sm font-bold text-success">
+          {{ success() }}
+        </p>
+      }
+      <button
+        [disabled]="form.invalid || busy()"
+        class="rounded-xl bg-primary px-5 py-3.5 font-extrabold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {{ busy() ? 'Aguarde…' : registering() ? 'Criar conta' : 'Entrar' }}
+      </button>
+      <button type="button" (click)="toggleMode()" class="text-sm font-bold text-primary">
+        {{ registering() ? 'Já tenho conta' : 'Ainda não tenho conta' }}
+      </button>
+      <a routerLink="/esqueci-senha" class="text-center text-sm text-muted hover:text-primary"
+        >Esqueci minha senha</a
+      >
+    </form>
+  </section>
+</main>

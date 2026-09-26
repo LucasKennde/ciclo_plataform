@@ -1,0 +1,127 @@
+<section class="mx-auto max-w-4xl animate-fade-in">
+  @if (simulation(); as run) {
+    <header class="flex items-center justify-between gap-4">
+      <button (click)="done()" class="text-sm font-bold text-muted">← Simulados</button
+      ><span class="text-sm font-bold text-muted">{{ answered() }} / {{ questions().length }}</span>
+    </header>
+    <div class="mt-6 flex items-center gap-3">
+      @if (editing()) {
+        <form [formGroup]="titleForm" (ngSubmit)="rename()" class="flex flex-1 gap-2">
+          <input
+            formControlName="title"
+            class="min-w-0 flex-1 rounded-xl border border-line bg-white px-4 py-3 text-2xl font-extrabold"
+          /><button class="rounded-xl bg-primary px-4 font-bold text-white">Salvar</button>
+        </form>
+      } @else {
+        <h1 class="min-w-0 flex-1 truncate text-4xl font-extrabold">
+          {{ run.title || 'Simulado' }}
+        </h1>
+        <button
+          (click)="editing.set(true)"
+          class="grid h-10 w-10 place-items-center rounded-xl border border-line bg-white text-muted"
+        >
+          <lucide-icon [img]="icons.Pencil" [size]="16" />
+        </button>
+      }
+    </div>
+    <div class="mt-6 flex gap-1">
+      @for (questionItem of questions(); track questionItem.id; let i = $index) {
+        <button
+          (click)="move(i)"
+          class="h-2 flex-1 rounded-full"
+          [class]="
+            i === index()
+              ? 'bg-coral'
+              : run.items[i]?.selectedIndex !== null
+                ? 'bg-primary'
+                : 'bg-line'
+          "
+          [attr.aria-label]="'Questão ' + (i + 1)"
+        ></button>
+      }
+    </div>
+    @if (run.status === 'FINISHED') {
+      <article class="mt-8 rounded-3xl bg-primary p-8 text-center text-white">
+        <p class="text-xs font-extrabold tracking-widest text-white/60">RESULTADO</p>
+        <div
+          class="mx-auto mt-6 grid h-40 w-40 place-items-center rounded-full border-[12px] border-white/20"
+        >
+          <b class="text-4xl">{{ (score() * 100).toFixed(0) }}%</b>
+        </div>
+        <h2 class="mt-6 text-2xl font-extrabold">Simulado concluído</h2>
+        <p class="mt-2 text-sm text-white/70">
+          Revise as respostas e transforme os erros em próximos passos.
+        </p>
+        <button
+          (click)="done()"
+          class="mt-6 rounded-xl bg-white px-5 py-3 font-extrabold text-primary"
+        >
+          Voltar aos simulados
+        </button>
+      </article>
+    }
+    @if (question(); as current) {
+      <article class="mt-8 rounded-3xl border border-line bg-white p-6 sm:p-9">
+        <div class="flex items-center justify-between">
+          <span class="rounded-full bg-primary-soft px-3 py-1 text-xs font-extrabold text-primary"
+            >Questão {{ index() + 1 }}</span
+          ><span class="text-xs font-bold text-muted">Dificuldade {{ current.difficulty }}</span>
+        </div>
+        <h2 class="mt-6 text-xl font-extrabold leading-8">{{ current.statement }}</h2>
+        <div class="mt-6 grid gap-3">
+          @for (alternative of current.alternatives; track $index) {
+            <button
+              type="button"
+              (click)="choose($index)"
+              class="flex items-start gap-3 rounded-2xl border p-4 text-left text-sm transition"
+              [class]="
+                selected() === $index
+                  ? 'border-primary bg-primary-soft'
+                  : 'border-line hover:border-primary/40'
+              "
+              [disabled]="run.status === 'FINISHED' || item()?.selectedIndex !== null"
+            >
+              <span
+                class="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-current text-xs font-extrabold"
+                >{{ ['A', 'B', 'C', 'D', 'E'][$index] }}</span
+              ><span>{{ alternative }}</span>
+            </button>
+          }
+        </div>
+        @if (run.status === 'FINISHED' || item()?.selectedIndex !== null) {
+          <div class="mt-6 rounded-2xl bg-bg p-5">
+            <p
+              class="text-sm font-extrabold"
+              [class]="
+                item()?.selectedIndex === current.correctIndex ? 'text-success' : 'text-danger'
+              "
+            >
+              {{
+                item()?.selectedIndex === current.correctIndex
+                  ? 'Resposta correta'
+                  : 'Resposta incorreta'
+              }}
+            </p>
+            <p class="mt-2 text-sm leading-6 text-muted">{{ current.explanation }}</p>
+          </div>
+        } @else {
+          <button
+            (click)="answer()"
+            [disabled]="selected() === null || busy()"
+            class="mt-6 w-full rounded-xl bg-primary px-5 py-3 font-extrabold text-white disabled:opacity-40"
+          >
+            Confirmar resposta
+          </button>
+        }
+      </article>
+    }
+    @if (run.status !== 'FINISHED' && answered() === questions().length && questions().length) {
+      <button
+        (click)="finish()"
+        class="mt-6 w-full rounded-xl bg-coral px-5 py-3 font-extrabold text-white"
+      >
+        Finalizar simulado
+      </button>
+    }
+  }
+</section>

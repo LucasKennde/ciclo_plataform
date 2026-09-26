@@ -1,0 +1,340 @@
+<section class="mx-auto max-w-5xl animate-fade-in">
+  @if (loading()) {
+    <div class="grid gap-5">
+      <div class="h-28 animate-pulse rounded-3xl bg-line"></div>
+      <div class="h-96 animate-pulse rounded-3xl bg-line"></div>
+    </div>
+  } @else {
+    <header class="rounded-3xl bg-primary px-6 py-7 text-white sm:px-9">
+      <div class="flex flex-wrap items-start justify-between gap-5">
+        <div>
+          <p class="text-xs font-extrabold tracking-[0.16em] text-white/60">PRIMEIROS PASSOS</p>
+          <h1 class="mt-2 text-3xl font-extrabold sm:text-4xl">Vamos preparar seu ciclo.</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-white/70">
+            Em poucos passos, transformamos seu edital em uma rotina de estudos feita para você.
+          </p>
+        </div>
+        @if (state()?.status !== 'COMPLETED') {
+          <button
+            type="button"
+            [disabled]="busy()"
+            (click)="skip()"
+            class="rounded-xl border border-white/20 px-4 py-2 text-xs font-extrabold text-white/80 hover:bg-white/10"
+          >
+            Fazer depois
+          </button>
+        }
+      </div>
+      <div class="mt-7 h-1.5 overflow-hidden rounded-full bg-white/15">
+        <div
+          class="h-full rounded-full bg-coral transition-all duration-500"
+          [style.width.%]="progressPercent()"
+        ></div>
+      </div>
+      <div class="mt-4 grid grid-cols-5 gap-2">
+        @for (step of state()?.steps; track step.key; let index = $index) {
+          <div class="min-w-0">
+            <span
+              class="grid h-7 w-7 place-items-center rounded-full text-xs font-extrabold"
+              [class]="
+                step.status === 'DONE'
+                  ? 'bg-coral text-white'
+                  : step.status === 'CURRENT'
+                    ? 'bg-white text-primary'
+                    : 'bg-white/10 text-white/50'
+              "
+            >
+              @if (step.status === 'DONE') {
+                <lucide-icon [img]="icons.Check" [size]="14" />
+              } @else {
+                {{ index + 1 }}
+              }
+            </span>
+            <p class="mt-2 hidden truncate text-[10px] font-bold text-white/65 sm:block">
+              {{ step.label }}
+            </p>
+          </div>
+        }
+      </div>
+    </header>
+
+    @if (error()) {
+      <div class="mt-5 flex items-start gap-3 rounded-2xl bg-danger/10 p-4 text-sm text-danger">
+        <lucide-icon [img]="icons.CircleAlert" [size]="19" class="mt-0.5 shrink-0" />
+        <p>{{ error() }}</p>
+      </div>
+    }
+
+    <article class="mt-5 rounded-3xl border border-line bg-surface p-6 sm:p-9">
+      @switch (state()?.currentStep) {
+        @case ('COMPETITION') {
+          <div class="mx-auto max-w-2xl">
+            <span
+              class="grid h-14 w-14 place-items-center rounded-2xl bg-primary-soft text-primary"
+            >
+              <lucide-icon [img]="icons.Target" [size]="27" />
+            </span>
+            <p class="mt-6 text-xs font-extrabold tracking-widest text-faint">ETAPA 1 DE 4</p>
+            <h2 class="mt-1 text-2xl font-extrabold">Qual concurso você vai conquistar?</h2>
+            <p class="mt-2 text-sm leading-6 text-muted">
+              Esses dados ajudam a IA a interpretar o edital no contexto correto.
+            </p>
+            <form
+              [formGroup]="competitionForm"
+              (ngSubmit)="createCompetition()"
+              class="mt-7 grid gap-5"
+            >
+              <label class="grid gap-2 text-sm font-bold">
+                Nome do concurso
+                <input
+                  formControlName="title"
+                  placeholder="Ex.: Polícia Federal 2027"
+                  class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+                />
+              </label>
+              <div class="grid gap-5 sm:grid-cols-2">
+                <label class="grid gap-2 text-sm font-bold">
+                  Cargo
+                  <input
+                    formControlName="role"
+                    placeholder="Ex.: Agente"
+                    class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+                  />
+                </label>
+                <label class="grid gap-2 text-sm font-bold">
+                  Banca organizadora
+                  <input
+                    formControlName="board"
+                    placeholder="Ex.: Cebraspe"
+                    class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+                  />
+                </label>
+              </div>
+              <label class="grid gap-2 text-sm font-bold">
+                Data da prova
+                <input
+                  type="date"
+                  [min]="minimumDate"
+                  formControlName="examDate"
+                  class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+                />
+              </label>
+              <button
+                [disabled]="competitionForm.invalid || busy()"
+                class="rounded-xl bg-primary px-5 py-3.5 font-extrabold text-white disabled:opacity-40"
+              >
+                {{ busy() ? 'Salvando…' : 'Salvar e continuar' }}
+              </button>
+            </form>
+          </div>
+        }
+        @case ('DOCUMENT') {
+          <div class="mx-auto max-w-2xl text-center">
+            <span
+              class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary-soft text-primary"
+            >
+              <lucide-icon [img]="icons.Upload" [size]="27" />
+            </span>
+            <p class="mt-6 text-xs font-extrabold tracking-widest text-faint">ETAPA 2 DE 4</p>
+            <h2 class="mt-1 text-2xl font-extrabold">Agora envie o edital.</h2>
+            <p class="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted">
+              Vamos identificar automaticamente disciplinas e tópicos para
+              {{ competition()?.title }}.
+            </p>
+            <label
+              class="mt-7 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-line p-10 transition hover:border-primary hover:bg-primary-soft/30"
+            >
+              <lucide-icon [img]="icons.FileText" [size]="32" class="text-primary" />
+              <b class="mt-4 text-sm">Escolher edital em PDF</b>
+              <span class="mt-1 text-xs text-muted">Arquivo de até 30 MB</span>
+              <input
+                type="file"
+                accept="application/pdf"
+                class="hidden"
+                [disabled]="busy()"
+                (change)="upload($event)"
+              />
+            </label>
+            @if (processing()?.status === 'FAILED') {
+              <button
+                type="button"
+                (click)="retry()"
+                [disabled]="busy()"
+                class="mt-5 text-sm font-extrabold text-primary disabled:opacity-50"
+              >
+                Tentar novamente
+              </button>
+            }
+          </div>
+        }
+        @case ('PROCESSING') {
+          <div class="mx-auto max-w-2xl py-8 text-center">
+            <span
+              class="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-primary-soft text-primary"
+            >
+              <lucide-icon [img]="icons.BookOpenCheck" [size]="30" />
+            </span>
+            <p class="mt-6 text-xs font-extrabold tracking-widest text-faint">LENDO O EDITAL</p>
+            <h2 class="mt-1 text-2xl font-extrabold">Organizando seu conteúdo…</h2>
+            <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted">
+              Você pode deixar esta página. O processamento continuará e retomaremos daqui.
+            </p>
+            <div class="mx-auto mt-7 max-w-md">
+              <div class="flex justify-between text-xs font-extrabold">
+                <span>{{ processing()?.status || 'PROCESSANDO' }}</span>
+                <span>{{ processing()?.progress ?? 0 }}%</span>
+              </div>
+              <div class="mt-2 h-2 overflow-hidden rounded-full bg-line">
+                <div
+                  class="h-full rounded-full bg-primary transition-all"
+                  [style.width.%]="processing()?.progress ?? 0"
+                ></div>
+              </div>
+            </div>
+          </div>
+        }
+        @case ('REVIEW') {
+          <div>
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-extrabold tracking-widest text-faint">ETAPA 3 DE 4</p>
+                <h2 class="mt-1 text-2xl font-extrabold">Confira o conteúdo encontrado.</h2>
+                <p class="mt-2 text-sm text-muted">
+                  Corrija nomes ou remova tópicos que não pertencem à prova.
+                </p>
+              </div>
+              <span
+                class="rounded-full bg-primary-soft px-3 py-1 text-xs font-extrabold text-primary"
+              >
+                {{ draftSubjects().length }} disciplinas
+              </span>
+            </div>
+            <div class="mt-7 grid gap-4">
+              @for (subject of draftSubjects(); track subject.id; let subjectIndex = $index) {
+                <section class="rounded-2xl border border-line p-5">
+                  <label class="grid gap-2 text-xs font-extrabold text-faint">
+                    DISCIPLINA
+                    <input
+                      [value]="subject.name"
+                      (input)="renameSubject(subjectIndex, $any($event.target).value)"
+                      class="rounded-xl border border-line px-4 py-3 text-sm font-bold text-text outline-none focus:border-primary"
+                    />
+                  </label>
+                  <div class="mt-4 grid gap-2">
+                    @for (topic of subject.topics; track topic.id; let topicIndex = $index) {
+                      <div class="flex items-center gap-2">
+                        <input
+                          [value]="topic.name"
+                          (input)="renameTopic(subjectIndex, topicIndex, $any($event.target).value)"
+                          class="min-w-0 flex-1 rounded-xl bg-bg px-4 py-2.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <button
+                          type="button"
+                          (click)="removeTopic(subjectIndex, topicIndex)"
+                          class="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-danger/5 hover:text-danger"
+                          aria-label="Remover tópico"
+                        >
+                          <lucide-icon [img]="icons.Trash2" [size]="16" />
+                        </button>
+                      </div>
+                    }
+                  </div>
+                </section>
+              }
+            </div>
+            <button
+              [disabled]="busy() || !validDraft()"
+              (click)="approve()"
+              class="mt-6 w-full rounded-xl bg-primary px-5 py-3.5 font-extrabold text-white disabled:opacity-40"
+            >
+              {{ busy() ? 'Salvando…' : 'Aprovar conteúdo e continuar' }}
+            </button>
+          </div>
+        }
+        @case ('AVAILABILITY') {
+          <div class="mx-auto max-w-2xl">
+            <span
+              class="grid h-14 w-14 place-items-center rounded-2xl bg-primary-soft text-primary"
+            >
+              <lucide-icon [img]="icons.CalendarDays" [size]="27" />
+            </span>
+            <p class="mt-6 text-xs font-extrabold tracking-widest text-faint">ETAPA 4 DE 4</p>
+            <h2 class="mt-1 text-2xl font-extrabold">Quanto tempo você tem por dia?</h2>
+            <p class="mt-2 text-sm leading-6 text-muted">
+              O Ciclo distribuirá os tópicos até a prova respeitando sua rotina.
+            </p>
+            <form [formGroup]="planForm" (ngSubmit)="generatePlan()" class="mt-7">
+              <label class="grid gap-2 text-sm font-bold">
+                Data da prova
+                <input
+                  type="date"
+                  [min]="minimumDate"
+                  formControlName="examDate"
+                  class="rounded-xl border border-line px-4 py-3 outline-none focus:border-primary"
+                />
+              </label>
+              <div class="mt-5 grid gap-3" formArrayName="availability">
+                @for (slot of availability.controls; track $index) {
+                  <div
+                    [formGroupName]="$index"
+                    class="grid grid-cols-[1fr_130px] items-center gap-4 rounded-xl bg-bg p-3"
+                  >
+                    <span class="text-sm font-bold">
+                      {{
+                        ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'][
+                          $index
+                        ]
+                      }}
+                    </span>
+                    <label class="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="720"
+                        step="15"
+                        formControlName="minutes"
+                        class="w-full rounded-lg border border-line px-3 py-2 text-right"
+                      />
+                      <span class="text-xs text-muted">min</span>
+                    </label>
+                  </div>
+                }
+              </div>
+              @if (!hasStudyTime()) {
+                <p class="mt-3 text-xs font-bold text-danger">
+                  Informe pelo menos 25 minutos em um dia.
+                </p>
+              }
+              <button
+                [disabled]="planForm.invalid || !hasStudyTime() || busy()"
+                class="mt-6 w-full rounded-xl bg-primary px-5 py-3.5 font-extrabold text-white disabled:opacity-40"
+              >
+                {{ busy() ? 'Montando seu ciclo…' : 'Gerar meu plano de estudos' }}
+              </button>
+            </form>
+          </div>
+        }
+        @case ('COMPLETED') {
+          <div class="mx-auto max-w-2xl py-8 text-center">
+            <span
+              class="mx-auto grid h-20 w-20 place-items-center rounded-full bg-success/10 text-success"
+            >
+              <lucide-icon [img]="icons.Check" [size]="36" />
+            </span>
+            <p class="mt-7 text-xs font-extrabold tracking-widest text-success">TUDO PRONTO</p>
+            <h2 class="mt-2 text-3xl font-extrabold">Seu primeiro ciclo foi criado.</h2>
+            <p class="mx-auto mt-3 max-w-lg text-sm leading-6 text-muted">
+              Seu edital virou um plano claro e executável. Agora é só começar pela próxima sessão.
+            </p>
+            <button
+              (click)="finish()"
+              class="mt-7 inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3.5 font-extrabold text-white"
+            >
+              Ir para minha rotina <lucide-icon [img]="icons.ChevronRight" [size]="18" />
+            </button>
+          </div>
+        }
+      }
+    </article>
+  }
+</section>

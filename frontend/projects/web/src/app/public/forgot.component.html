@@ -1,0 +1,20 @@
+<main class="grid min-h-screen place-items-center bg-bg p-6">
+  <form
+    [formGroup]="form"
+    (ngSubmit)="send()"
+    class="grid w-full max-w-md gap-5 rounded-3xl border border-line bg-white p-8"
+  >
+    <a routerLink="/login" class="text-sm font-bold text-primary">← Voltar</a>
+    <h1 class="text-3xl font-extrabold">Recuperar senha</h1>
+    <p class="text-sm text-muted">Enviaremos um link de uso único.</p>
+    <label class="grid gap-2 text-sm font-bold"
+      >E-mail<input
+        formControlName="email"
+        type="email"
+        class="rounded-xl border border-line px-4 py-3" /></label
+    ><button class="rounded-xl bg-primary px-5 py-3 font-extrabold text-white">Enviar link</button>
+    @if (message()) {
+      <p class="text-sm font-bold text-success">{{ message() }}</p>
+    }
+  </form>
+</main>

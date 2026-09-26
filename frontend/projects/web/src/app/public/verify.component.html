@@ -1,0 +1,13 @@
+<main class="grid min-h-screen place-items-center bg-bg p-6">
+  <section class="w-full max-w-md rounded-3xl border border-line bg-white p-8 text-center">
+    <span class="mx-auto grid h-14 w-14 place-items-center rounded-full bg-primary-soft text-2xl">{{
+      failed() ? '!' : '✓'
+    }}</span>
+    <h1 class="mt-5 text-2xl font-extrabold">{{ message() }}</h1>
+    <a
+      routerLink="/login"
+      class="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
+      >Ir para o login</a
+    >
+  </section>
+</main>

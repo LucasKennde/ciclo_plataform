@@ -1,0 +1,371 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+:root {
+  --primary: #164c3f;
+  --primary-2: #e7f0ec;
+  --bg: #f7f7f2;
+  --surface: #fff;
+  --text: #17231f;
+  --muted: #66756f;
+  --line: #e4e7e3;
+  --danger: #c55245;
+  --font-serif: 'Poppins', sans-serif;
+  font-family: 'Poppins', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+a {
+  text-decoration: none;
+  color: inherit;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-weight: 800;
+}
+.brand > b {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.75rem;
+  background: var(--primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.brand span {
+  display: grid;
+}
+.brand small {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.button {
+  display: inline-flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  color: #fff;
+  border: 0;
+  background: var(--primary);
+}
+.link {
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+.error {
+  color: var(--danger);
+}
+label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+input,
+select,
+textarea {
+  border: 1px solid;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.75rem;
+  border-color: var(--line);
+  color: var(--text);
+}
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 20% 20%, #dcece6, transparent 35%);
+}
+.login form {
+  width: min(400px, calc(100% - 2rem));
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 2rem;
+  display: grid;
+  gap: 1rem;
+  box-shadow: 0 20px 60px #163c3020;
+}
+.login h1 {
+  margin: 1rem 0 0;
+}
+.shell {
+  display: grid;
+  grid-template-columns: 255px 1fr;
+  min-height: 100vh;
+}
+.shell aside {
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  border-right: 1px solid var(--line);
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+.shell nav {
+  display: grid;
+  gap: 0.3rem;
+}
+.shell nav a {
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.shell nav a.active {
+  background: var(--primary);
+  color: #fff;
+}
+.shell nav a:hover {
+  background: var(--primary-2);
+  color: var(--text);
+}
+.shell nav a.active:hover {
+  background: var(--primary);
+  color: #fff;
+}
+.shell aside > .link {
+  margin-top: auto;
+  text-align: left;
+}
+.shell > main {
+  padding: 3rem clamp(1.25rem, 4vw, 4rem);
+  min-width: 0;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.filters,
+.inline {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.filters input {
+  flex: 1;
+}
+.table {
+  display: grid;
+}
+.row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 2fr;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+.row > span {
+  min-width: 0;
+}
+.row small {
+  display: block;
+  color: var(--muted);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+.success {
+  color: var(--primary);
+  font-weight: 700;
+}
+.row.header {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.pill {
+  display: inline-flex;
+  width: max-content;
+  border-radius: 100px;
+  background: var(--primary-2);
+  color: var(--primary);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.security-grid {
+  display: grid;
+  gap: 1rem;
+}
+.security-grid .switch-row {
+  gap: 2rem;
+  align-items: start;
+}
+.security-grid .switch-row > div {
+  max-width: 48rem;
+}
+.security-grid .switch-row form {
+  min-width: 13rem;
+}
+.mail-details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.mail-details div {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+.mail-details dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.mail-details dd {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+.danger-button {
+  background: var(--danger);
+}
+.limits,
+.columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  background: #e9eeec;
+  padding: 0.3rem;
+  border-radius: 11px;
+  width: max-content;
+  margin-bottom: 1.25rem;
+}
+.tabs button {
+  border: 0;
+  background: transparent;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.tabs button.active {
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 2px 8px #0001;
+}
+.providers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.key {
+  display: grid;
+  gap: 0.5rem;
+}
+.route {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1.5fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+form {
+  display: grid;
+  gap: 1rem;
+}
+.check {
+  display: flex;
+  align-items: center;
+}
+.check input {
+  width: auto;
+}
+@media (max-width: 900px) {
+  .shell {
+    display: block;
+  }
+  .shell aside {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    height: auto;
+    padding: 0;
+    border-top: 1px solid var(--line);
+    border-right: 0;
+  }
+  .shell nav {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+  }
+  .shell nav a {
+    border-radius: 0;
+    padding: 0.9rem 0.35rem;
+    text-align: center;
+    font-size: 0.68rem;
+  }
+  .shell .brand,
+  .shell aside > .link {
+    display: none;
+  }
+  .shell > main {
+    padding: 1.5rem 1rem 6rem;
+  }
+  .metrics,
+  .providers {
+    grid-template-columns: 1fr 1fr;
+  }
+  .row {
+    grid-template-columns: 1fr;
+  }
+  .row.header {
+    display: none;
+  }
+  .route,
+  .limits,
+  .columns,
+  .mail-details {
+    grid-template-columns: 1fr;
+  }
+  .security-grid .switch-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

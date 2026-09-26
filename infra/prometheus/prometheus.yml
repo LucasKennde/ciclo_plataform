@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: ciclo
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [gateway:8080, identity:8081, study:8082, ai:8083, admin-api:8084]
+

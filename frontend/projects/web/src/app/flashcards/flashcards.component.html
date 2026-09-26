@@ -1,0 +1,164 @@
+<section class="animate-fade-in">
+  <header class="flex flex-wrap items-end justify-between gap-5">
+    <div>
+      <p class="text-xs font-extrabold tracking-[0.14em] text-faint">FLASHCARDS</p>
+      <h1 class="mt-1 text-4xl font-extrabold">Sua memória ativa.</h1>
+      <p class="mt-2 text-sm text-muted">
+        {{ filtered().length }} {{ filtered().length === 1 ? 'card criado' : 'cards criados' }}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <button
+        [disabled]="!filtered().length"
+        (click)="study()"
+        class="flex items-center gap-2 rounded-xl border border-primary px-4 py-3 text-sm font-extrabold text-primary disabled:opacity-40"
+      >
+        <lucide-icon [img]="icons.Play" [size]="16" /> Estudar</button
+      ><button
+        (click)="createOpen.set(true)"
+        class="flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-extrabold text-white"
+      >
+        <lucide-icon [img]="icons.Plus" [size]="16" /> Novo card
+      </button>
+    </div>
+  </header>
+  <div class="mt-7 flex gap-2 overflow-x-auto pb-2">
+    <button
+      (click)="filter.set('')"
+      class="shrink-0 rounded-full px-4 py-2 text-xs font-bold"
+      [class]="!filter() ? 'bg-primary text-white' : 'border border-line bg-white text-muted'"
+    >
+      Todos
+    </button>
+    @for (competition of competitions(); track competition.id) {
+      <button
+        (click)="filter.set(competition.id)"
+        class="shrink-0 rounded-full px-4 py-2 text-xs font-bold"
+        [class]="
+          filter() === competition.id
+            ? 'bg-primary text-white'
+            : 'border border-line bg-white text-muted'
+        "
+      >
+        {{ competition.title }}
+      </button>
+    }
+  </div>
+  @if (!filtered().length) {
+    <div class="mt-8 rounded-3xl border border-line bg-white p-10 text-center">
+      <span
+        class="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-primary-soft text-primary"
+        ><lucide-icon [img]="icons.Layers" [size]="30"
+      /></span>
+      <h2 class="mt-5 text-2xl font-extrabold">Nenhum flashcard ainda</h2>
+      <p class="mx-auto mt-2 max-w-lg text-sm text-muted">
+        Crie cards com perguntas e respostas para revisar o conteúdo quando quiser.
+      </p>
+      <button
+        (click)="createOpen.set(true)"
+        class="mt-6 rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
+      >
+        Criar primeiro flashcard
+      </button>
+    </div>
+  } @else {
+    <div class="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      @for (item of filtered(); track item.id) {
+        <article class="group rounded-2xl border border-line bg-white p-5">
+          <div class="flex justify-between">
+            <span class="text-[10px] font-extrabold tracking-widest text-faint">FRENTE</span
+            ><button
+              (click)="remove(item.id)"
+              class="text-muted opacity-0 transition group-hover:opacity-100 hover:text-danger"
+            >
+              <lucide-icon [img]="icons.Trash2" [size]="15" />
+            </button>
+          </div>
+          <h3 class="mt-3 min-h-14 font-extrabold leading-6">{{ item.front }}</h3>
+          <div class="my-4 border-t border-line"></div>
+          <span class="text-[10px] font-extrabold tracking-widest text-faint">RESPOSTA</span>
+          <p class="mt-2 line-clamp-3 text-sm leading-6 text-muted">{{ item.back }}</p>
+        </article>
+      }
+    </div>
+  }
+</section>
+@if (createOpen()) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="createOpen.set(false)"
+  >
+    <form
+      [formGroup]="form"
+      (ngSubmit)="create()"
+      (click)="$event.stopPropagation()"
+      class="grid w-full max-w-lg gap-5 rounded-3xl bg-white p-7"
+    >
+      <header class="flex justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">FLASHCARDS</p>
+          <h2 class="mt-1 text-2xl font-extrabold">Novo flashcard</h2>
+        </div>
+        <button type="button" (click)="createOpen.set(false)">
+          <lucide-icon [img]="icons.X" />
+        </button>
+      </header>
+      <label class="grid gap-2 text-sm font-bold"
+        >Concurso<select
+          formControlName="competitionId"
+          class="rounded-xl border border-line px-4 py-3"
+        >
+          <option value="">Geral</option>
+          @for (competition of competitions(); track competition.id) {
+            <option [value]="competition.id">{{ competition.title }}</option>
+          }
+        </select></label
+      ><label class="grid gap-2 text-sm font-bold"
+        >Pergunta<textarea
+          rows="3"
+          formControlName="front"
+          class="rounded-xl border border-line px-4 py-3"
+        ></textarea></label
+      ><label class="grid gap-2 text-sm font-bold"
+        >Resposta<textarea
+          rows="5"
+          formControlName="back"
+          class="rounded-xl border border-line px-4 py-3"
+        ></textarea></label
+      ><button class="rounded-xl bg-primary px-5 py-3 font-extrabold text-white">
+        Criar flashcard
+      </button>
+    </form>
+  </div>
+}
+@if (studyOpen() && card(); as current) {
+  <div class="fixed inset-0 z-50 grid place-items-center bg-text/70 p-4">
+    <section class="w-full max-w-2xl">
+      <header class="mb-4 flex items-center justify-between text-white">
+        <span class="text-sm font-bold">{{ index() + 1 }} de {{ filtered().length }}</span
+        ><button (click)="studyOpen.set(false)"><lucide-icon [img]="icons.X" /></button>
+      </header>
+      <button
+        (click)="flipped.set(!flipped())"
+        class="grid min-h-[380px] w-full place-items-center rounded-3xl bg-white p-10 text-center shadow-2xl"
+      >
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">
+            {{ flipped() ? 'RESPOSTA' : 'PERGUNTA' }}
+          </p>
+          <h2 class="mt-6 text-2xl font-extrabold leading-9">
+            {{ flipped() ? current.back : current.front }}
+          </h2>
+          <p class="mt-8 text-xs font-bold text-muted">Toque para virar</p>
+        </div>
+      </button>
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <button (click)="next(-1)" class="rounded-xl bg-white/10 px-5 py-3 font-bold text-white">
+          Anterior</button
+        ><button (click)="next(1)" class="rounded-xl bg-white px-5 py-3 font-bold text-primary">
+          Próximo
+        </button>
+      </div>
+    </section>
+  </div>
+}

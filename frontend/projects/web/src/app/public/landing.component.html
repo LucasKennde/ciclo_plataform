@@ -1,0 +1,81 @@
+<main class="min-h-screen bg-bg text-text">
+  <nav class="mx-auto flex h-24 max-w-6xl items-center justify-between px-6">
+    <a routerLink="/" class="flex items-center gap-2.5 text-lg font-extrabold">
+      <span class="grid h-10 w-10 place-items-center rounded-xl bg-primary text-white">C</span>
+      Ciclo
+    </a>
+    <a
+      routerLink="/login"
+      class="rounded-xl border border-primary px-5 py-2.5 text-sm font-extrabold text-primary hover:bg-primary hover:text-white"
+      >Entrar</a
+    >
+  </nav>
+  <section
+    class="mx-auto grid max-w-6xl items-center gap-14 px-6 py-16 lg:grid-cols-[1.2fr_.8fr] lg:py-28"
+  >
+    <div class="animate-fade-in">
+      <p class="text-xs font-extrabold tracking-[0.16em] text-primary">
+        PREPARAÇÃO QUE SE ADAPTA A VOCÊ
+      </p>
+      <h1
+        class="mt-6 text-[clamp(3.25rem,7vw,5.875rem)] font-extrabold leading-[0.94] tracking-tight"
+      >
+        Do edital ao próximo<br /><em class="not-italic text-coral">passo claro.</em>
+      </h1>
+      <p class="mt-7 max-w-xl text-lg leading-8 text-muted">
+        Envie seu edital. O Ciclo organiza o conteúdo, cria sua rota e recalcula cada semana com
+        base no que você realmente aprendeu.
+      </p>
+      <a
+        routerLink="/login"
+        class="mt-8 inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-extrabold text-white hover:bg-primary-hover"
+      >
+        Criar meu plano <lucide-icon [img]="icons.ChevronRight" [size]="18" />
+      </a>
+    </div>
+    <div class="relative hidden min-h-[440px] lg:block">
+      <div class="absolute inset-0 rounded-[3rem] bg-primary-soft"></div>
+      <div
+        class="absolute left-10 right-0 top-12 rounded-3xl border border-line bg-surface p-7 shadow-xl"
+      >
+        <p class="text-xs font-extrabold tracking-widest text-faint">HOJE</p>
+        <h2 class="mt-2 text-2xl font-extrabold">Seu próximo passo.</h2>
+        <div class="mt-7 rounded-2xl bg-primary p-6 text-white">
+          <p class="text-xs font-bold text-white/60">DIREITO CONSTITUCIONAL</p>
+          <h3 class="mt-2 text-xl font-extrabold">Direitos e garantias fundamentais</h3>
+          <div class="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
+            <div class="h-full w-2/3 rounded-full bg-coral"></div>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-line p-4">
+            <b class="text-2xl">12</b>
+            <p class="text-xs text-muted">dias de sequência</p>
+          </div>
+          <div class="rounded-2xl border border-line p-4">
+            <b class="text-2xl">74%</b>
+            <p class="text-xs text-muted">precisão média</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <footer class="bg-primary text-white">
+    <div class="mx-auto grid max-w-6xl gap-8 px-6 py-12 md:grid-cols-3">
+      @for (
+        step of [
+          ['01', 'Envie o edital', 'Cargo, banca e documento em um só fluxo.'],
+          ['02', 'Revise a leitura', 'Cada tópico volta com página e evidência.'],
+          ['03', 'Execute o ciclo', 'Estudo, revisão e questões na medida do seu tempo.'],
+        ];
+        track step[0]
+      ) {
+        <div>
+          <b class="text-coral">{{ step[0] }}</b>
+          <h3 class="mt-3 font-extrabold">{{ step[1] }}</h3>
+          <p class="mt-2 text-sm text-white/65">{{ step[2] }}</p>
+        </div>
+      }
+    </div>
+  </footer>
+</main>

@@ -1,0 +1,48 @@
+import { Routes } from '@angular/router';
+import { authGuard } from 'auth';
+import {
+  AppShell,
+  ErrorsPage,
+  FlashcardsPage,
+  ForgotPage,
+  HomePage,
+  LandingPage,
+  LoginPage,
+  OnboardingPage,
+  PlanPage,
+  ProgressPage,
+  ResetPage,
+  SimulationsPage,
+  SimulationPage,
+  VerifyPage,
+} from './pages';
+export const routes: Routes = [
+  { path: '', component: LandingPage },
+  { path: 'login', component: LoginPage },
+  { path: 'esqueci-senha', component: ForgotPage },
+  { path: 'verificar-email', component: VerifyPage },
+  { path: 'redefinir-senha', component: ResetPage },
+  {
+    path: 'app',
+    component: AppShell,
+    canActivate: [authGuard],
+    children: [
+      { path: '', component: HomePage },
+      { path: 'primeiros-passos', component: OnboardingPage },
+      { path: 'plano', component: PlanPage },
+      { path: 'simulados', component: SimulationsPage },
+      { path: 'simulado/:id', component: SimulationPage },
+      { path: 'flashcards', component: FlashcardsPage },
+      { path: 'erros', component: ErrorsPage },
+      { path: 'progresso', component: ProgressPage },
+    ],
+  },
+  { path: 'dashboard', redirectTo: 'app', pathMatch: 'full' },
+  { path: 'dashboard/plan', redirectTo: 'app/plano', pathMatch: 'full' },
+  { path: 'dashboard/simulados', redirectTo: 'app/simulados', pathMatch: 'full' },
+  { path: 'dashboard/simulado/:id', redirectTo: 'app/simulado/:id', pathMatch: 'full' },
+  { path: 'dashboard/flashcards', redirectTo: 'app/flashcards', pathMatch: 'full' },
+  { path: 'dashboard/erros', redirectTo: 'app/erros', pathMatch: 'full' },
+  { path: 'dashboard/progresso', redirectTo: 'app/progresso', pathMatch: 'full' },
+  { path: '**', redirectTo: '' },
+];

@@ -1,0 +1,30 @@
+server:
+  port: ${SERVER_PORT:8081}
+spring:
+  application.name: identity-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ciclo_identity}
+    username: ${DATABASE_USER:ciclo}
+    password: ${DATABASE_PASSWORD:ciclo}
+  jpa:
+    open-in-view: false
+    hibernate.ddl-auto: validate
+  flyway.enabled: true
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
+  rabbitmq.addresses: ${RABBITMQ_URL:amqp://ciclo:ciclo@localhost:5672}
+management.endpoints.web.exposure.include: health,info,prometheus
+management.endpoint.health.probes.enabled: true
+app:
+  jwt-secret: ${JWT_SECRET:local-development-secret-with-at-least-32-bytes}
+  web-url: ${WEB_URL:http://localhost:4200}
+  mail.from: ${MAIL_FROM:no-reply@ciclo.local}
+  bootstrap-admin:
+    email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${BOOTSTRAP_ADMIN_PASSWORD:}

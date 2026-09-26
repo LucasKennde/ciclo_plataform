@@ -1,0 +1,87 @@
+<section class="animate-fade-in">
+  <header>
+    <p class="text-xs font-extrabold tracking-[0.14em] text-faint">CADERNO DE ERROS</p>
+    <h1 class="mt-1 text-4xl font-extrabold">Sua memória de revisão.</h1>
+    <p class="mt-2 text-sm text-muted">
+      {{
+        entries().length
+          ? 'Você tem ' + entries().length + ' questões para revisar.'
+          : 'Tudo certo por aqui.'
+      }}
+    </p>
+  </header>
+  @if (loading()) {
+    <div class="mt-8 h-40 animate-pulse rounded-3xl bg-line"></div>
+  } @else if (!entries().length) {
+    <div class="mt-8 rounded-3xl border border-line bg-white p-10 text-center">
+      <span
+        class="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-primary-soft text-primary"
+        ><lucide-icon [img]="icons.BookOpenCheck" [size]="30"
+      /></span>
+      <h2 class="mt-5 text-2xl font-extrabold">Nenhum erro registrado</h2>
+      <p class="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted">
+        As questões que você errar aparecem aqui com a resposta correta e a explicação para você
+        revisar e não repetir o erro.
+      </p>
+    </div>
+  } @else {
+    <div class="mt-8 grid gap-4">
+      @for (entry of entries(); track entry.question.id) {
+        <button
+          (click)="current.set(entry)"
+          class="flex items-start gap-4 rounded-2xl border border-line bg-white p-5 text-left hover:border-primary/40"
+        >
+          <span
+            class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-danger/10 text-danger"
+            ><lucide-icon [img]="icons.RotateCcw" [size]="18" /></span
+          ><span class="min-w-0 flex-1"
+            ><b class="line-clamp-2 text-sm leading-6">{{ entry.question.statement }}</b
+            ><small class="mt-1 block text-muted"
+              >{{ entry.simulation.title || 'Simulado' }} ·
+              {{ entry.question.boardStyle || 'Questão de treino' }}</small
+            ></span
+          ><lucide-icon [img]="icons.ChevronRight" [size]="18" class="mt-2 text-faint" />
+        </button>
+      }
+    </div>
+  }
+</section>
+@if (current(); as entry) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="current.set(null)"
+  >
+    <article
+      (click)="$event.stopPropagation()"
+      class="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-7"
+    >
+      <header class="flex justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-danger">REVISÃO DO ERRO</p>
+          <h2 class="mt-2 text-xl font-extrabold leading-8">{{ entry.question.statement }}</h2>
+        </div>
+        <button (click)="current.set(null)"><lucide-icon [img]="icons.X" /></button>
+      </header>
+      <div class="mt-6 grid gap-3">
+        @for (alternative of entry.question.alternatives; track $index) {
+          <div
+            class="rounded-xl border p-4 text-sm"
+            [class]="
+              $index === entry.question.correctIndex
+                ? 'border-success bg-success/5'
+                : $index === entry.selectedIndex
+                  ? 'border-danger bg-danger/5'
+                  : 'border-line'
+            "
+          >
+            <b>{{ ['A', 'B', 'C', 'D', 'E'][$index] }}.</b> {{ alternative }}
+          </div>
+        }
+      </div>
+      <div class="mt-6 rounded-2xl bg-bg p-5">
+        <b class="text-sm">Por que essa é a resposta?</b>
+        <p class="mt-2 text-sm leading-7 text-muted">{{ entry.question.explanation }}</p>
+      </div>
+    </article>
+  </div>
+}

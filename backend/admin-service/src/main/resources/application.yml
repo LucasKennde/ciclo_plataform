@@ -1,0 +1,15 @@
+server.port: ${SERVER_PORT:8084}
+spring:
+  application.name: admin-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ciclo_admin}
+    username: ${DATABASE_USER:ciclo}
+    password: ${DATABASE_PASSWORD:ciclo}
+  rabbitmq.addresses: ${RABBITMQ_URL:amqp://ciclo:ciclo@localhost:5672}
+management.endpoints.web.exposure.include: health,info,prometheus
+management.endpoint.health.probes.enabled: true
+app:
+  jwt-secret: ${JWT_SECRET:local-development-secret-with-at-least-32-bytes}
+  identity-url: ${IDENTITY_URL:http://localhost:8081}
+  ai-url: ${AI_URL:http://localhost:8083}
+

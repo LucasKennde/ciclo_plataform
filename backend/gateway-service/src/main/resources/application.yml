@@ -1,0 +1,19 @@
+server.port: ${SERVER_PORT:8080}
+spring:
+  application.name: gateway-service
+  rabbitmq.addresses: ${RABBITMQ_URL:amqp://ciclo:ciclo@localhost:5672}
+  cloud.gateway.server.webflux.routes:
+    - id: identity-auth
+      uri: ${IDENTITY_URL:http://localhost:8081}
+      predicates: ["Path=/api/v1/auth/**,/api/v1/me,/api/admin/v1/users/**,/api/admin/v1/identity/**"]
+    - id: study
+      uri: ${STUDY_URL:http://localhost:8082}
+      predicates: ["Path=/api/v1/competitions/**,/api/v1/uploads/**,/api/v1/processing-jobs/**,/api/v1/flashcards/**,/api/v1/simulations/**,/api/v1/progress,/api/v1/errors,/api/v1/onboarding"]
+    - id: ai-admin
+      uri: ${AI_URL:http://localhost:8083}
+      predicates: ["Path=/api/admin/v1/ai/**"]
+    - id: admin
+      uri: ${ADMIN_URL:http://localhost:8084}
+      predicates: ["Path=/api/admin/v1/dashboard,/api/admin/v1/settings/**,/api/admin/v1/security/**"]
+management.endpoints.web.exposure.include: health,info,prometheus
+management.endpoint.health.probes.enabled: true

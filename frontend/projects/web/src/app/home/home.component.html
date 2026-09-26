@@ -1,0 +1,347 @@
+<section class="animate-fade-in">
+  @if (loading()) {
+    <div class="grid gap-4">
+      <div class="h-16 animate-pulse rounded-2xl bg-line"></div>
+      <div class="h-72 animate-pulse rounded-2xl bg-line"></div>
+    </div>
+  } @else {
+    <header class="flex flex-wrap items-end justify-between gap-5">
+      <div>
+        <p class="text-xs font-extrabold tracking-[0.14em] text-faint">HOJE</p>
+        <h1 class="mt-1 text-4xl font-extrabold">Olá, {{ name() }}.</h1>
+        <p class="mt-2 text-sm text-muted">
+          Uma sessão de cada vez. Você está construindo consistência.
+        </p>
+      </div>
+      <button
+        type="button"
+        (click)="createOpen.set(true)"
+        class="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-extrabold text-white"
+      >
+        <lucide-icon [img]="icons.Plus" [size]="17" /> Novo concurso
+      </button>
+    </header>
+    @if (onboarding(); as setup) {
+      @if (setup.status !== 'COMPLETED') {
+        <article
+          class="mt-7 flex flex-col gap-5 rounded-2xl border border-primary/20 bg-primary-soft/60 p-5 sm:flex-row sm:items-center"
+        >
+          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary text-white">
+            <lucide-icon [img]="icons.Target" [size]="22" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-extrabold tracking-widest text-primary">CONFIGURAÇÃO INICIAL</p>
+            <h2 class="mt-1 font-extrabold">Termine de preparar seu primeiro ciclo</h2>
+            <p class="mt-1 text-sm text-muted">
+              {{ onboardingDone() }} de {{ setup.steps.length - 1 }} etapas concluídas · seu
+              progresso está salvo.
+            </p>
+          </div>
+          <button
+            type="button"
+            (click)="resumeOnboarding()"
+            class="flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-extrabold text-white"
+          >
+            Continuar <lucide-icon [img]="icons.ChevronRight" [size]="17" />
+          </button>
+        </article>
+      }
+    }
+    @if (!current()) {
+      <div class="mt-8 rounded-3xl border border-line bg-surface p-10 text-center">
+        <span
+          class="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-primary-soft text-primary"
+          ><lucide-icon [img]="icons.Target" [size]="30"
+        /></span>
+        <h2 class="mt-5 text-2xl font-extrabold">Seu primeiro ciclo começa aqui</h2>
+        <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted">
+          Cadastre o concurso, informe o cargo e envie o edital para transformar conteúdo em
+          direção.
+        </p>
+        <button
+          (click)="createOpen.set(true)"
+          class="mt-6 rounded-xl bg-primary px-5 py-3 text-sm font-extrabold text-white"
+        >
+          Cadastrar concurso
+        </button>
+      </div>
+    } @else {
+      <div class="mt-8 grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
+        <article class="rounded-3xl bg-primary p-7 text-white sm:p-9">
+          <div class="flex items-center justify-between">
+            <p class="text-xs font-extrabold tracking-[0.14em] text-white/55">PRÓXIMA AÇÃO</p>
+            <span class="rounded-full bg-white/10 px-3 py-1 text-xs font-bold">{{
+              current()?.title
+            }}</span>
+          </div>
+          @if (nextSession(); as next) {
+            <p class="mt-7 text-sm font-bold text-white/65">{{ next.subjectName }}</p>
+            <h2 class="mt-2 max-w-xl text-3xl font-extrabold">{{ next.topicName }}</h2>
+            <p class="mt-3 flex items-center gap-2 text-sm text-white/70">
+              <lucide-icon [img]="icons.Clock3" [size]="16" /> {{ next.minutes }} minutos ·
+              {{ next.kind }}
+            </p>
+            <button
+              (click)="start(next.id)"
+              class="mt-8 flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-extrabold text-primary"
+            >
+              <lucide-icon [img]="icons.Play" [size]="17" /> Começar sessão
+            </button>
+          } @else {
+            <h2 class="mt-6 text-3xl font-extrabold">Prepare sua rota.</h2>
+            <p class="mt-3 text-white/70">Envie e aprove o edital para gerar seu plano.</p>
+            <button
+              (click)="openDocuments(current()!)"
+              class="mt-7 rounded-xl bg-white px-5 py-3 text-sm font-extrabold text-primary"
+            >
+              Revisar edital
+            </button>
+          }
+        </article>
+        <article class="rounded-3xl border border-line bg-surface p-7">
+          <p class="text-xs font-extrabold tracking-[0.14em] text-faint">PROGRESSO DO DIA</p>
+          <div class="mt-5 flex items-end justify-between">
+            <div>
+              <b class="text-4xl">{{ todayMinutes() }}</b
+              ><span class="text-sm text-muted"> / {{ goalMinutes() }} min</span>
+            </div>
+            <b class="text-primary">{{ todayPercent() }}%</b>
+          </div>
+          <div class="mt-4 h-2 overflow-hidden rounded-full bg-line">
+            <div
+              class="h-full rounded-full bg-coral transition-all"
+              [style.width.%]="todayPercent()"
+            ></div>
+          </div>
+          <div class="mt-7 grid grid-cols-2 gap-3 text-center">
+            <div class="rounded-xl bg-bg p-3">
+              <b>{{ completedToday().length }}</b>
+              <p class="text-[11px] text-muted">sessões</p>
+            </div>
+            <div class="rounded-xl bg-bg p-3">
+              <b>{{ progress()?.streak ?? 0 }}</b>
+              <p class="text-[11px] text-muted">dias seguidos</p>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div class="mt-5 grid gap-5 lg:grid-cols-3">
+        <article class="rounded-2xl border border-line bg-surface p-6">
+          <p class="text-xs font-extrabold text-faint">ATÉ A PROVA</p>
+          <b class="mt-2 block text-3xl"
+            >{{ examDays() ?? '—' }} <small class="text-sm text-muted">dias</small></b
+          >
+          <p class="mt-2 text-sm text-muted">{{ current()?.role }} · {{ current()?.board }}</p>
+        </article>
+        <article class="rounded-2xl border border-line bg-surface p-6">
+          <p class="text-xs font-extrabold text-faint">PLANO CONCLUÍDO</p>
+          <b class="mt-2 block text-3xl">{{ planPercent() }}%</b>
+          <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+            <div class="h-full bg-primary" [style.width.%]="planPercent()"></div>
+          </div>
+        </article>
+        <article class="rounded-2xl border border-line bg-surface p-6">
+          <p class="text-xs font-extrabold text-faint">PRECISÃO</p>
+          <b class="mt-2 block text-3xl"
+            >{{ ((progress()?.averageAccuracy ?? 0) * 100).toFixed(0) }}%</b
+          >
+          <p class="mt-2 text-sm text-muted">
+            {{ progress()?.totalAnswered ?? 0 }} questões respondidas
+          </p>
+        </article>
+      </div>
+      <div class="mt-10 flex items-end justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-[0.14em] text-faint">SUAS PREPARAÇÕES</p>
+          <h2 class="mt-1 text-2xl font-extrabold">Concursos</h2>
+        </div>
+      </div>
+      <div class="mt-5 grid gap-4">
+        @for (competition of competitions(); track competition.id) {
+          <article
+            class="flex flex-col gap-5 rounded-2xl border border-line bg-surface p-5 transition hover:-translate-y-0.5 hover:shadow-md sm:flex-row sm:items-center"
+          >
+            <button
+              (click)="select(competition)"
+              class="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary-soft font-extrabold text-primary"
+            >
+              {{ competition.title.slice(0, 2).toUpperCase() }}</button
+            ><button (click)="select(competition)" class="min-w-0 flex-1 text-left">
+              <h3 class="truncate font-extrabold">{{ competition.title }}</h3>
+              <p class="mt-1 text-sm text-muted">
+                {{ competition.role }} · {{ competition.board }}
+              </p></button
+            ><span
+              class="w-max rounded-full bg-primary-soft px-3 py-1 text-xs font-extrabold text-primary"
+              >{{ competition.status }}</span
+            >
+            <div class="flex gap-2">
+              <button
+                (click)="openDocuments(competition)"
+                class="rounded-lg border border-line px-3 py-2 text-xs font-bold hover:border-primary"
+              >
+                Edital</button
+              ><a
+                [routerLink]="['/app/plano']"
+                [queryParams]="{ competition: competition.id }"
+                class="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white"
+                >Ver plano</a
+              ><button
+                (click)="remove(competition)"
+                class="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-danger/5 hover:text-danger"
+              >
+                <lucide-icon [img]="icons.Trash2" [size]="16" />
+              </button>
+            </div>
+          </article>
+        }
+      </div>
+    }
+  }
+</section>
+@if (createOpen()) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="createOpen.set(false)"
+  >
+    <form
+      [formGroup]="createForm"
+      (ngSubmit)="create()"
+      (click)="$event.stopPropagation()"
+      class="grid w-full max-w-lg gap-5 rounded-3xl bg-white p-7 shadow-2xl"
+    >
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">NOVA PREPARAÇÃO</p>
+          <h2 class="mt-1 text-2xl font-extrabold">Qual é o seu próximo objetivo?</h2>
+        </div>
+        <button type="button" (click)="createOpen.set(false)">
+          <lucide-icon [img]="icons.X" />
+        </button>
+      </div>
+      <label class="grid gap-2 text-sm font-bold"
+        >Concurso<input formControlName="title" class="rounded-xl border border-line px-4 py-3"
+      /></label>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="grid gap-2 text-sm font-bold"
+          >Cargo<input
+            formControlName="role"
+            class="rounded-xl border border-line px-4 py-3" /></label
+        ><label class="grid gap-2 text-sm font-bold"
+          >Banca<input formControlName="board" class="rounded-xl border border-line px-4 py-3"
+        /></label>
+      </div>
+      <label class="grid gap-2 text-sm font-bold"
+        >Data da prova<input
+          type="date"
+          formControlName="examDate"
+          class="rounded-xl border border-line px-4 py-3" /></label
+      ><button
+        [disabled]="createForm.invalid || busy()"
+        class="rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
+      >
+        {{ busy() ? 'Criando…' : 'Criar preparação' }}
+      </button>
+    </form>
+  </div>
+}
+@if (documentOpen() && current()) {
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
+    (click)="documentOpen.set(false)"
+  >
+    <section
+      (click)="$event.stopPropagation()"
+      class="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-7 shadow-2xl"
+    >
+      <header class="flex items-start justify-between">
+        <div>
+          <p class="text-xs font-extrabold tracking-widest text-faint">EDITAL</p>
+          <h2 class="mt-1 text-2xl font-extrabold">{{ current()?.title }}</h2>
+        </div>
+        <button (click)="documentOpen.set(false)"><lucide-icon [img]="icons.X" /></button>
+      </header>
+      <label
+        class="mt-6 flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line p-6 text-sm font-bold text-primary hover:border-primary"
+        ><lucide-icon [img]="icons.Upload" [size]="18" /> Enviar edital em PDF<input
+          type="file"
+          accept="application/pdf"
+          class="hidden"
+          (change)="upload($event)"
+      /></label>
+      @if (processing(); as job) {
+        <div class="mt-4 rounded-xl bg-primary-soft p-4">
+          <div class="flex justify-between text-sm font-bold">
+            <span>{{
+              job.status === 'FAILED' ? 'Falha no processamento' : 'Lendo o documento…'
+            }}</span
+            ><span>{{ job.progress }}%</span>
+          </div>
+          <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+            <div class="h-full bg-primary" [style.width.%]="job.progress"></div>
+          </div>
+          @if (job.errorMessage) {
+            <p class="mt-2 text-xs text-danger">{{ job.errorMessage }}</p>
+          }
+        </div>
+      }
+      @if (syllabus(); as content) {
+        <div class="mt-7">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xs font-extrabold tracking-widest text-faint">CONTEÚDO PROGRAMÁTICO</p>
+              <h3 class="mt-1 text-xl font-extrabold">Revise a leitura</h3>
+            </div>
+            <span class="rounded-full bg-primary-soft px-3 py-1 text-xs font-bold text-primary">{{
+              content.status
+            }}</span>
+          </div>
+          <div class="mt-4 grid gap-3">
+            @for (subject of content.subjects; track subject.id) {
+              <details class="rounded-xl border border-line p-4" open>
+                <summary class="cursor-pointer font-extrabold">
+                  {{ subject.name }}
+                  <span class="text-xs text-muted">· {{ subject.topics.length }} tópicos</span>
+                </summary>
+                <ul class="mt-3 grid gap-2 pl-5 text-sm text-muted">
+                  @for (topic of subject.topics; track topic.id) {
+                    <li>
+                      {{ topic.name }}
+                      @if (topic.evidence?.page) {
+                        <span class="text-xs text-faint">p. {{ topic.evidence?.page }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              </details>
+            }
+          </div>
+          @if (content.status !== 'APPROVED') {
+            <button
+              (click)="approve()"
+              class="mt-5 w-full rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
+            >
+              Aprovar conteúdo
+            </button>
+          }
+        </div>
+      }
+      <div class="mt-7">
+        <p class="text-xs font-extrabold tracking-widest text-faint">VERSÕES</p>
+        @for (document of documents(); track document.id) {
+          <div class="mt-2 flex items-center justify-between rounded-xl border border-line p-4">
+            <div>
+              <b class="text-sm">{{ document.fileName }}</b>
+              <p class="text-xs text-muted">
+                Versão {{ document.version }} · {{ document.createdAt | date: 'short' }}
+              </p>
+            </div>
+            <button (click)="reprocess(document)" class="text-xs font-bold text-primary">
+              Reprocessar
+            </button>
+          </div>
+        }
+      </div>
+    </section>
+  </div>
+}
