@@ -29,7 +29,7 @@ services:
       - "9001"
 
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
