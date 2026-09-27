@@ -215,6 +215,40 @@ export interface AiDashboard {
   blocks: any[];
   settings: AiPolicy;
 }
+export interface AiModel {
+  id: string;
+  label: string;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  operations: string[];
+}
+export interface AiProviderView {
+  id: string;
+  label: string;
+  configured: boolean;
+  source: 'PANEL' | 'ENV' | null;
+  last4: string | null;
+  updatedAt: string | null;
+  lastTestOk: boolean | null;
+  lastTestError: string | null;
+  models: AiModel[];
+}
+export interface AiRoute {
+  operation: string;
+  provider: string;
+  model: string;
+  inputPrice: number;
+  outputPrice: number;
+}
+export interface AiProvidersOverview {
+  encryptionAvailable: boolean;
+  providers: AiProviderView[];
+  routing: Record<string, AiRoute>;
+}
+export interface AiTestResult {
+  ok: boolean;
+  error: string | null;
+}
 
 @Injectable({ providedIn: 'root' })
 export class ApiClient {
@@ -438,17 +472,22 @@ export class ApiClient {
   updateSettings(body: any): Observable<any> {
     return this.http.put<any>('/api/admin/v1/settings', body);
   }
-  aiProviders(): Observable<any> {
-    return this.http.get<any>('/api/admin/v1/ai/providers');
+  aiProviders(): Observable<AiProvidersOverview> {
+    return this.http.get<AiProvidersOverview>('/api/admin/v1/ai/providers');
   }
-  saveProviderKey(provider: string, apiKey: string, force = false): Observable<any> {
-    return this.http.put<any>(`/api/admin/v1/ai/providers/${provider}/key`, { apiKey, force });
+  saveProviderKey(provider: string, apiKey: string, force = false): Observable<AiProviderView> {
+    return this.http.put<AiProviderView>(`/api/admin/v1/ai/providers/${provider}/key`, {
+      apiKey,
+      force,
+    });
   }
-  testProvider(provider: string): Observable<any> {
-    return this.http.post<any>(`/api/admin/v1/ai/providers/${provider}/test`, {});
+  testProvider(provider: string): Observable<AiTestResult> {
+    return this.http.post<AiTestResult>(`/api/admin/v1/ai/providers/${provider}/test`, {});
   }
-  updateRoutes(routes: any[]): Observable<any> {
-    return this.http.put<any>('/api/admin/v1/ai/routing', routes);
+  updateRoutes(
+    routes: { operation: string; provider: string; model: string }[],
+  ): Observable<AiProvidersOverview> {
+    return this.http.put<AiProvidersOverview>('/api/admin/v1/ai/routing', routes);
   }
   aiUsage(hours = 24): Observable<AiDashboard> {
     return this.http.get<AiDashboard>('/api/admin/v1/ai/usage', { params: { hours } });

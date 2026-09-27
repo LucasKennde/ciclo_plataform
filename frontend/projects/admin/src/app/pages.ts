@@ -1,4 +1,5 @@
 import { CommonModule } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
@@ -6,6 +7,7 @@ import {
   ApiClient,
   AiDashboard,
   AiPolicy,
+  AiProvidersOverview,
   IdentitySettings,
   MailConfiguration,
   User,
@@ -348,18 +350,31 @@ export class AiUsagePage {
       </form></ciclo-card
     >
     <section *ngIf="tab() === 'IA'">
+      <p class="success" *ngIf="aiMessage()">{{ aiMessage() }}</p>
+      <p class="error" *ngIf="aiError()">
+        {{ aiError() }}
+        <button *ngIf="pendingForceSave()" class="link" (click)="forceSaveKey()">
+          Salvar mesmo assim
+        </button>
+      </p>
       <div class="providers">
         <ciclo-card *ngFor="let p of providers()?.providers"
           ><span class="pill">{{ p.configured ? 'Configurado' : 'Sem chave' }}</span>
           <h2>{{ p.label }}</h2>
           <p *ngIf="p.last4">Chave ••••{{ p.last4 }} · {{ p.source }}</p>
+          <p *ngIf="p.lastTestOk === false" class="error">
+            Último teste falhou: {{ p.lastTestError }}
+          </p>
           <div class="key">
-            <input #key placeholder="Cole uma nova API key" /><button
+            <input #key placeholder="Cole uma nova API key" [disabled]="aiBusy() === p.id" /><button
               class="button"
+              [disabled]="aiBusy() === p.id"
               (click)="saveKey(p.id, key.value)"
             >
-              Salvar e testar</button
-            ><button class="link" (click)="test(p.id)">Testar</button>
+              {{ aiBusy() === p.id ? 'Testando…' : 'Salvar e testar' }}</button
+            ><button class="link" [disabled]="aiBusy() === p.id" (click)="test(p.id)">
+              Testar
+            </button>
           </div></ciclo-card
         >
       </div>
@@ -464,7 +479,11 @@ export class SettingsPage {
   private fb = inject(FormBuilder);
   tabs = ['Geral', 'IA', 'Segurança'];
   tab = signal('Geral');
-  providers = signal<any>(null);
+  providers = signal<AiProvidersOverview | null>(null);
+  aiMessage = signal('');
+  aiError = signal('');
+  aiBusy = signal<string | null>(null);
+  pendingForceSave = signal<{ provider: string; key: string } | null>(null);
   audit = signal<any[]>([]);
   identitySettings = signal<IdentitySettings | null>(null);
   mailConfiguration = signal<MailConfiguration | null>(null);
@@ -502,16 +521,62 @@ export class SettingsPage {
       .subscribe((v) => this.general.patchValue(v));
   }
   saveKey(provider: string, key: string) {
-    if (key)
-      this.api
-        .saveProviderKey(provider, key)
-        .subscribe(() => this.api.aiProviders().subscribe((v) => this.providers.set(v)));
+    const trimmed = key.trim();
+    if (trimmed) this.submitKey(provider, trimmed, false);
+  }
+  forceSaveKey() {
+    const pending = this.pendingForceSave();
+    if (pending) this.submitKey(pending.provider, pending.key, true);
+  }
+  private submitKey(provider: string, key: string, force: boolean) {
+    this.clearAiFeedback();
+    this.aiBusy.set(provider);
+    this.api.saveProviderKey(provider, key, force).subscribe({
+      next: () => {
+        this.pendingForceSave.set(null);
+        this.api.aiProviders().subscribe((v) => {
+          this.aiBusy.set(null);
+          this.providers.set(v);
+          const saved = v.providers.find((p) => p.id === provider);
+          this.aiMessage.set(
+            saved?.lastTestOk
+              ? 'Credencial validada e salva.'
+              : 'Credencial salva sem confirmação de teste.',
+          );
+        });
+      },
+      error: (e: HttpErrorResponse) => {
+        this.aiBusy.set(null);
+        // Offer to bypass the live provider test only for a first, untried attempt: a forced
+        // save that fails again means the error is unrelated to the test (e.g. bad key format),
+        // and retrying force would just repeat it.
+        this.pendingForceSave.set(force ? null : { provider, key });
+        this.aiError.set(e.error?.message ?? 'Não foi possível salvar a credencial.');
+      },
+    });
   }
   test(provider: string) {
-    this.api.testProvider(provider).subscribe();
+    this.clearAiFeedback();
+    this.aiBusy.set(provider);
+    this.api.testProvider(provider).subscribe({
+      next: (result) => {
+        this.aiBusy.set(null);
+        if (result.ok) this.aiMessage.set('Credencial válida.');
+        else this.aiError.set(result.error ?? 'O provedor rejeitou a credencial.');
+      },
+      error: (e: HttpErrorResponse) => {
+        this.aiBusy.set(null);
+        this.aiError.set(e.error?.message ?? 'Não foi possível testar a credencial.');
+      },
+    });
+  }
+  private clearAiFeedback() {
+    this.aiMessage.set('');
+    this.aiError.set('');
+    this.pendingForceSave.set(null);
   }
   models(provider: string) {
-    return this.providers()?.providers?.find((p: any) => p.id === provider)?.models ?? [];
+    return this.providers()?.providers?.find((p) => p.id === provider)?.models ?? [];
   }
   route(operation: string, provider: string, model: string) {
     if (provider && model)
