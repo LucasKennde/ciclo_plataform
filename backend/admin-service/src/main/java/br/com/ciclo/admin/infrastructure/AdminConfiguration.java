@@ -2,6 +2,7 @@ package br.com.ciclo.admin.infrastructure;
 
 import br.com.ciclo.admin.application.AdminApplicationService;
 import br.com.ciclo.admin.application.AdminPorts.*;
+import br.com.ciclo.shared.events.EventEnvelope;
 import br.com.ciclo.shared.security.JwtRoleConverter;
 import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
@@ -10,6 +11,9 @@ import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.support.converter.DefaultJacksonJavaTypeMapper;
+import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,9 +21,22 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 public class AdminConfiguration {
+  @Bean
+  // Boot's default RabbitTemplate/@RabbitListener converter only accepts String, byte[] and
+  // Serializable; EventEnvelope is a plain record, so publish/consume fail without this.
+  MessageConverter rabbitMessageConverter(JsonMapper jsonMapper) {
+    var converter = new JacksonJsonMessageConverter(jsonMapper);
+    var typeMapper = new DefaultJacksonJavaTypeMapper();
+    // Only our own event package may be deserialized from the __TypeId__ header.
+    typeMapper.setTrustedPackages(EventEnvelope.class.getPackageName());
+    converter.setJavaTypeMapper(typeMapper);
+    return converter;
+  }
+
   @Bean
   Declarables adminMessaging() {
     var exchange = new TopicExchange("ciclo.events", true, false);

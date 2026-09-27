@@ -1,5 +1,6 @@
 package br.com.ciclo.study.infrastructure.config;
 
+import br.com.ciclo.shared.events.EventEnvelope;
 import br.com.ciclo.shared.security.JwtRoleConverter;
 import br.com.ciclo.study.application.*;
 import br.com.ciclo.study.application.StudyPorts.*;
@@ -8,6 +9,9 @@ import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.support.converter.DefaultJacksonJavaTypeMapper;
+import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -17,6 +21,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 public class StudyConfiguration {
@@ -42,6 +47,18 @@ public class StudyConfiguration {
         .credentialsProvider(
             StaticCredentialsProvider.create(AwsBasicCredentials.create(access, secret)))
         .build();
+  }
+
+  @Bean
+  // Boot's default RabbitTemplate/@RabbitListener converter only accepts String, byte[] and
+  // Serializable; EventEnvelope is a plain record, so publish/consume fail without this.
+  MessageConverter rabbitMessageConverter(JsonMapper jsonMapper) {
+    var converter = new JacksonJsonMessageConverter(jsonMapper);
+    var typeMapper = new DefaultJacksonJavaTypeMapper();
+    // Only our own event package may be deserialized from the __TypeId__ header.
+    typeMapper.setTrustedPackages(EventEnvelope.class.getPackageName());
+    converter.setJavaTypeMapper(typeMapper);
+    return converter;
   }
 
   @Bean

@@ -3,9 +3,13 @@ package br.com.ciclo.identity.infrastructure.config;
 import br.com.ciclo.identity.application.IdentityApplicationService;
 import br.com.ciclo.identity.application.IdentityPorts.*;
 import br.com.ciclo.identity.infrastructure.security.SecurityAdapters;
+import br.com.ciclo.shared.events.EventEnvelope;
 import br.com.ciclo.shared.security.JwtRoleConverter;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import javax.crypto.SecretKey;
+import org.springframework.amqp.support.converter.DefaultJacksonJavaTypeMapper;
+import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +22,7 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 @EnableMethodSecurity
@@ -25,6 +30,18 @@ public class IdentityConfiguration {
   @Bean
   PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder(12);
+  }
+
+  @Bean
+  // Boot's default RabbitTemplate/@RabbitListener converter only accepts String, byte[] and
+  // Serializable; EventEnvelope is a plain record, so publish/consume fail without this.
+  MessageConverter rabbitMessageConverter(JsonMapper jsonMapper) {
+    var converter = new JacksonJsonMessageConverter(jsonMapper);
+    var typeMapper = new DefaultJacksonJavaTypeMapper();
+    // Only our own event package may be deserialized from the __TypeId__ header.
+    typeMapper.setTrustedPackages(EventEnvelope.class.getPackageName());
+    converter.setJavaTypeMapper(typeMapper);
+    return converter;
   }
 
   @Bean
