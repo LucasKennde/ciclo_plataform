@@ -481,6 +481,9 @@ export class ApiClient {
       force,
     });
   }
+  removeProviderKey(provider: string): Observable<void> {
+    return this.http.delete<void>(`/api/admin/v1/ai/providers/${provider}/key`);
+  }
   testProvider(provider: string): Observable<AiTestResult> {
     return this.http.post<AiTestResult>(`/api/admin/v1/ai/providers/${provider}/test`, {});
   }

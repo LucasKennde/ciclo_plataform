@@ -1,0 +1,206 @@
+<ciclo-page-header
+  eyebrow="PLATAFORMA"
+  title="Configurações."
+  subtitle="Produto, integrações e segurança."
+/>
+<div class="tabs">
+  @for (t of tabs; track t) {
+    <button (click)="tab.set(t)" [class.active]="tab() === t">
+      {{ t }}
+    </button>
+  }
+</div>
+@if (tab() === 'Geral') {
+  <ciclo-card
+    ><form [formGroup]="general" (ngSubmit)="saveGeneral()">
+      <label>Nome do produto<input formControlName="productName" /></label
+      ><label>E-mail de suporte<input formControlName="supportEmail" /></label
+      ><label>Descrição<textarea formControlName="description"></textarea></label>
+      <div class="columns">
+        <label>Idioma<input formControlName="locale" /></label
+        ><label>Fuso horário<input formControlName="timezone" /></label>
+      </div>
+      <label class="check"
+        ><input type="checkbox" formControlName="maintenanceMode" /> Modo manutenção</label
+      ><button class="button">Salvar alterações</button>
+    </form></ciclo-card
+  >
+}
+@if (tab() === 'IA') {
+  <section>
+    @if (aiMessage()) {
+      <p class="success">{{ aiMessage() }}</p>
+    }
+    @if (aiError()) {
+      <p class="error">
+        {{ aiError() }}
+        @if (pendingForceSave()) {
+          <button class="link" (click)="forceSaveKey()">Salvar mesmo assim</button>
+        }
+      </p>
+    }
+    <div class="providers">
+      @for (p of providers()?.providers ?? []; track p.id) {
+        <ciclo-card
+          ><span class="pill">{{ p.configured ? 'Configurado' : 'Sem chave' }}</span>
+          <h2>{{ p.label }}</h2>
+          @if (p.last4) {
+            <p>Chave ••••{{ p.last4 }} · {{ p.source }}</p>
+          }
+          @if (p.lastTestOk === false) {
+            <p class="error">Último teste falhou: {{ p.lastTestError }}</p>
+          }
+          <div class="key">
+            <label
+              ><span class="sr-only">Nova API key para {{ p.label }}</span
+              ><input
+                type="password"
+                placeholder="Cole uma nova API key"
+                [value]="keyDraft(p.id)"
+                (input)="setKeyDraft(p.id, $any($event.target).value)"
+                [disabled]="aiBusy() === p.id"
+            /></label>
+            <button
+              class="button"
+              [disabled]="aiBusy() === p.id"
+              (click)="saveKey(p.id, keyDraft(p.id))"
+            >
+              {{ aiBusy() === p.id ? 'Testando…' : 'Salvar e testar' }}
+            </button>
+            <button class="link" [disabled]="aiBusy() === p.id" (click)="test(p.id)">Testar</button>
+            @if (p.configured && p.source === 'PANEL') {
+              <button class="link" [disabled]="aiBusy() === p.id" (click)="removeKey(p.id)">
+                Remover chave
+              </button>
+            }
+          </div></ciclo-card
+        >
+      }
+    </div>
+    <ciclo-card
+      ><h2>Roteamento por operação</h2>
+      @for (op of operations; track op) {
+        <div class="route">
+          <div>
+            <b>{{ operationLabel(op) }}</b>
+            <small>Atual: {{ routeLabel(op) }}</small>
+          </div>
+          <select #provider>
+            <option value="">Provedor</option>
+            @for (p of providers()?.providers ?? []; track p.id) {
+              <option [value]="p.id">
+                {{ p.label }}
+              </option>
+            }
+          </select>
+          <select #model>
+            <option value="">Modelo</option>
+            @for (m of models(provider.value); track m.id) {
+              <option [value]="m.id">
+                {{ m.label }}
+              </option>
+            }
+          </select>
+          <button
+            class="button"
+            [disabled]="!provider.value || !model.value"
+            (click)="route(op, provider.value, model.value)"
+          >
+            Aplicar
+          </button>
+        </div>
+      }
+    </ciclo-card>
+  </section>
+}
+@if (tab() === 'Segurança') {
+  <section class="security-grid">
+    <ciclo-card>
+      <div class="switch-row">
+        <div>
+          <h2>Confirmação de e-mail</h2>
+          <p>
+            Quando desativada, novos usuários entram ativos. Contas que já estão pendentes não são
+            alteradas automaticamente.
+          </p>
+        </div>
+        <form [formGroup]="identityForm" (ngSubmit)="saveIdentitySettings()">
+          <label class="check">
+            <input type="checkbox" formControlName="emailVerificationRequired" />
+            Exigir confirmação
+          </label>
+          <button class="button">Salvar</button>
+        </form>
+      </div>
+      @if (identitySettings(); as current) {
+        <small>
+          Última alteração por {{ current.updatedBy }} em {{ current.updatedAt | date: 'short' }}
+        </small>
+      }
+    </ciclo-card>
+
+    @if (mailConfiguration(); as mail) {
+      <ciclo-card>
+        <div class="switch-row">
+          <div>
+            <span class="pill">{{ mail.mode === 'LOCAL_CAPTURE' ? 'Mailpit local' : 'SMTP' }}</span>
+            <h2>Entrega de e-mail</h2>
+            <p>
+              {{ mail.configured ? 'Configuração disponível.' : 'Configuração incompleta.' }}
+              As credenciais permanecem protegidas no ambiente.
+            </p>
+          </div>
+        </div>
+        <dl class="mail-details">
+          <div>
+            <dt>Servidor</dt>
+            <dd>{{ mail.host }}:{{ mail.port }}</dd>
+          </div>
+          <div>
+            <dt>Remetente</dt>
+            <dd>{{ mail.from }}</dd>
+          </div>
+          <div>
+            <dt>Usuário</dt>
+            <dd>{{ mail.usernameMasked || 'Não informado' }}</dd>
+          </div>
+          <div>
+            <dt>Segurança</dt>
+            <dd>
+              Auth {{ mail.authentication ? 'ativa' : 'inativa' }} · TLS
+              {{ mail.startTls ? 'ativo' : 'inativo' }}
+            </dd>
+          </div>
+        </dl>
+        <form class="inline" [formGroup]="mailTestForm" (ngSubmit)="sendTestMail()">
+          <input type="email" formControlName="email" placeholder="Destinatário do teste" />
+          <button class="button" [disabled]="mailTestForm.invalid">Enviar teste</button>
+        </form>
+      </ciclo-card>
+    }
+
+    @if (securityMessage()) {
+      <p class="success">{{ securityMessage() }}</p>
+    }
+    @if (securityError()) {
+      <p class="error">{{ securityError() }}</p>
+    }
+
+    <ciclo-card>
+      <h2>Auditoria administrativa</h2>
+      <div class="table">
+        <div class="row header">
+          <span>Ação</span><span>Objeto</span><span>Ator</span><span>Data</span>
+        </div>
+        @for (a of audit(); track $index) {
+          <div class="row">
+            <span>{{ a.action }}</span>
+            <span>{{ a.subject }}</span>
+            <span>{{ a.actor }}</span>
+            <span>{{ a.createdAt | date: 'short' }}</span>
+          </div>
+        }
+      </div>
+    </ciclo-card>
+  </section>
+}

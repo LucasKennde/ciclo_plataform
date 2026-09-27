@@ -1,0 +1,21 @@
+<ciclo-page-header
+  eyebrow="ADMIN"
+  title="Visão geral."
+  subtitle="Saúde do produto nas últimas 24 horas."
+/>
+<div class="metrics">
+  <ciclo-metric label="Usuários" [value]="data()?.users ?? 0" /><ciclo-metric
+    label="Requisições IA"
+    [value]="data()?.ai?.requests ?? 0"
+  /><ciclo-metric label="Tokens" [value]="data()?.ai?.totalTokens ?? 0" /><ciclo-metric
+    label="Custo estimado"
+    [value]="'$ ' + (data()?.ai?.estimatedCostUsd ?? 0).toFixed(4)"
+  />
+</div>
+<ciclo-card
+  ><h2>Operação</h2>
+  <p>
+    Falhas de IA: <b>{{ data()?.ai?.errors ?? 0 }}</b> · Bloqueios:
+    <b>{{ data()?.ai?.blocked ?? 0 }}</b>
+  </p></ciclo-card
+>

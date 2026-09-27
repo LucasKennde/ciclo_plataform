@@ -1,0 +1,47 @@
+<ciclo-page-header
+  eyebrow="CONTAS"
+  title="Usuários."
+  subtitle="Consulte e gerencie o acesso ao Ciclo."
+/>
+<form class="filters" [formGroup]="filter" (ngSubmit)="load()">
+  <input placeholder="Nome ou e-mail" formControlName="search" /><select formControlName="status">
+    <option value="">Todos</option>
+    <option>ACTIVE</option>
+    <option>SUSPENDED</option>
+    <option>PENDING_VERIFICATION</option></select
+  ><button class="button">Buscar</button>
+</form>
+@if (message()) {
+  <p class="success">{{ message() }}</p>
+}
+@if (error()) {
+  <p class="error">{{ error() }}</p>
+}
+<ciclo-card
+  ><div class="table">
+    <div class="row header">
+      <span>Usuário</span><span>Status</span><span>Papel</span><span>Ações</span>
+    </div>
+    @for (user of users(); track user.id) {
+      <div class="row">
+        <span
+          ><b>{{ user.displayName }}</b
+          ><small>{{ user.email }}</small></span
+        ><span class="pill">{{ user.status }}</span
+        ><span>{{ user.role }}</span
+        ><span class="actions">
+          @if (user.status === 'PENDING_VERIFICATION') {
+            <button class="link" (click)="confirmEmail(user)">Confirmar e-mail</button>
+            <button class="link" (click)="resendVerification(user)">Reenviar verificação</button>
+          } @else {
+            <button class="link" (click)="toggle(user)">
+              {{ user.status === 'SUSPENDED' ? 'Reativar' : 'Suspender' }}
+            </button>
+          }
+          <button class="link" (click)="revoke(user)">Revogar sessões</button></span
+        >
+      </div>
+    }
+  </div>
+  <p>{{ total() }} usuários</p></ciclo-card
+>

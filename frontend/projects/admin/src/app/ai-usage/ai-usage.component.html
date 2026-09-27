@@ -1,0 +1,75 @@
+<ciclo-page-header
+  eyebrow="GOVERNANÇA"
+  title="Consumo de IA."
+  subtitle="Custos, limites e eventos em um só lugar."
+  ><select [value]="hours()" (change)="hours.set(+$any($event.target).value); load()">
+    <option value="24">24 horas</option>
+    <option value="168">7 dias</option>
+    <option value="720">30 dias</option>
+  </select></ciclo-page-header
+>
+<div class="metrics">
+  <ciclo-metric label="Requisições" [value]="data()?.summary?.requests ?? 0" /><ciclo-metric
+    label="Tokens"
+    [value]="data()?.summary?.totalTokens ?? 0"
+  /><ciclo-metric
+    label="Custo"
+    [value]="'$ ' + (data()?.summary?.estimatedCostUsd ?? 0).toFixed(4)"
+  /><ciclo-metric label="Bloqueadas" [value]="data()?.summary?.blocked ?? 0" />
+</div>
+<ciclo-card
+  ><div class="switch-row">
+    <div>
+      <h3>Kill switch</h3>
+      <p>Interrompe imediatamente novas execuções.</p>
+    </div>
+    <button
+      class="button"
+      [class.danger-button]="data()?.settings?.killSwitch"
+      (click)="toggleKill()"
+    >
+      {{ data()?.settings?.killSwitch ? 'Reativar IA' : 'Pausar IA' }}
+    </button>
+  </div>
+  @if (data(); as d) {
+    <form class="limits">
+      <label
+        >Por minuto<input type="number" [(ngModel)]="d.settings.perMinute" name="minute" /></label
+      ><label>Por hora<input type="number" [(ngModel)]="d.settings.perHour" name="hour" /></label
+      ><label>Por dia<input type="number" [(ngModel)]="d.settings.perDay" name="day" /></label
+      ><button class="button" type="button" (click)="saveLimits()">Salvar limites</button>
+    </form>
+  }
+</ciclo-card>
+<h2>Principais consumidores</h2>
+<ciclo-card
+  ><div class="table">
+    <div class="row header">
+      <span>Principal</span><span>Requisições</span><span>Tokens</span><span>Custo</span>
+    </div>
+    @for (c of data()?.consumers ?? []; track $index) {
+      <div class="row">
+        <span>{{ c.principal }}</span
+        ><span>{{ c.requests }}</span
+        ><span>{{ c.totalTokens }}</span
+        ><span>{{ c.costUsd | currency: 'USD' }}</span>
+      </div>
+    }
+  </div></ciclo-card
+>
+<h2>Eventos recentes</h2>
+<ciclo-card
+  ><div class="table">
+    <div class="row header">
+      <span>Operação</span><span>Provedor</span><span>Status</span><span>Tokens</span>
+    </div>
+    @for (e of data()?.events ?? []; track $index) {
+      <div class="row">
+        <span>{{ e.operation }}</span
+        ><span>{{ e.provider }} / {{ e.model }}</span
+        ><span>{{ e.outcome }}</span
+        ><span>{{ e.inputTokens + e.outputTokens }}</span>
+      </div>
+    }
+  </div></ciclo-card
+>

@@ -318,6 +318,12 @@ form {
   width: auto;
 }
 @media (max-width: 900px) {
+  .providers {
+    grid-template-columns: 1fr;
+  }
+  .route {
+    grid-template-columns: 1fr;
+  }
   .shell {
     display: block;
   }

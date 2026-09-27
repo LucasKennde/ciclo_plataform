@@ -1,0 +1,15 @@
+<div class="shell">
+  <aside>
+    <div class="brand">
+      <b>C</b><span>Ciclo<small>Painel administrativo</small></span>
+    </div>
+    <nav>
+      <a routerLink="/dashboard" routerLinkActive="active">Visão geral</a
+      ><a routerLink="/usuarios" routerLinkActive="active">Usuários</a
+      ><a routerLink="/consumo-ia" routerLinkActive="active">Consumo de IA</a
+      ><a routerLink="/configuracoes" routerLinkActive="active">Configurações</a>
+    </nav>
+    <button class="link" (click)="auth.logout()">Sair</button>
+  </aside>
+  <main><router-outlet /></main>
+</div>
