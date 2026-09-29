@@ -224,6 +224,39 @@
     </form>
   </div>
 }
+@if (generating()) {
+  <ciclo-dialog panelClass="max-w-md" (dismiss)="noop()">
+    <div class="p-8 text-center">
+      <span
+        class="mx-auto grid h-14 w-14 animate-pulse place-items-center rounded-2xl bg-primary-soft text-primary"
+      >
+        <lucide-icon [img]="icons.Sparkles" [size]="26" />
+      </span>
+      <h2 class="mt-5 text-2xl font-extrabold">Criando suas questões</h2>
+      <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted">
+        Seu banco ainda não tem questões suficientes para este simulado. A IA está escrevendo sobre
+        a disciplina selecionada a partir do conteúdo do edital — leva alguns segundos.
+      </p>
+      <p class="mt-5 text-xs font-bold text-muted">
+        Você pode sair da página; o simulado fica pronto.
+      </p>
+    </div>
+  </ciclo-dialog>
+}
+@if (error()) {
+  <div class="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-md">
+    <div
+      class="flex items-start gap-3 rounded-2xl bg-danger p-4 text-sm text-white shadow-lg"
+      role="alert"
+    >
+      <lucide-icon [img]="icons.CircleAlert" [size]="18" class="mt-0.5 shrink-0" />
+      <p class="flex-1">{{ error() }}</p>
+      <button type="button" (click)="error.set('')" aria-label="Fechar aviso">
+        <lucide-icon [img]="icons.X" [size]="16" />
+      </button>
+    </div>
+  </div>
+}
 @if (uploadOpen()) {
   <div
     class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"

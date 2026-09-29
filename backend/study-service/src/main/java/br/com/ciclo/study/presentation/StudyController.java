@@ -116,6 +116,12 @@ public class StudyController {
     return study.getPlan(workspace(jwt), id);
   }
 
+  @PostMapping("/competitions/{id}/study-plan/sessions/{sessionId}/start")
+  Plan start(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable UUID sessionId) {
+    return study.startSession(workspace(jwt), id, sessionId);
+  }
+
   @PostMapping("/competitions/{id}/study-plan/sessions/{sessionId}/complete")
   Plan complete(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable UUID sessionId) {

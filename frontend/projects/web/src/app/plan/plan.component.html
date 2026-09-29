@@ -79,26 +79,56 @@
         Recalcular plano
       </button>
     </div>
+    @if (coverage(); as cover) {
+      @if (cover.missing > 0) {
+        <div class="mt-5 flex items-start gap-3 rounded-2xl bg-warning/10 p-4 text-sm text-warning">
+          <lucide-icon [img]="icons.CircleAlert" [size]="18" class="mt-0.5 shrink-0" />
+          <p>
+            O tempo até a prova comporta {{ cover.scheduled }} de {{ cover.total }} tópicos do
+            edital. Os {{ cover.missing }} restantes não couberam na sua rotina atual — aumente os
+            minutos diários ou recalcule com mais disponibilidade.
+          </p>
+        </div>
+      }
+    }
     <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      @for (subject of subjects(); track subject.name) {
-        <article class="rounded-2xl border border-line bg-white p-5">
-          <div class="flex items-start justify-between">
-            <div>
+      @for (subject of subjectRows(); track subject.name) {
+        <article
+          class="rounded-2xl border border-line bg-white p-5"
+          [class.opacity-60]="!subject.scheduled"
+          [class.border-dashed]="!subject.scheduled"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
               <h3 class="font-extrabold">{{ subject.name }}</h3>
-              <p class="mt-1 text-xs text-muted">{{ subject.minutes }} min planejados</p>
+              @if (subject.scheduled) {
+                <p class="mt-1 text-xs text-muted">{{ subject.minutes }} min planejados</p>
+              }
             </div>
-            <span class="text-sm font-extrabold text-primary"
-              >{{ subject.total ? ((subject.done / subject.total) * 100).toFixed(0) : 0 }}%</span
+            <span
+              class="shrink-0 text-sm font-extrabold"
+              [class]="subject.scheduled ? 'text-primary' : 'text-warning'"
             >
+              @if (subject.scheduled) {
+                {{ subject.total ? ((subject.done / subject.total) * 100).toFixed(0) : 0 }}%
+              } @else {
+                Fora do plano
+              }
+            </span>
           </div>
           <div class="mt-4 h-1.5 rounded-full bg-line">
             <div
-              class="h-full rounded-full bg-primary"
+              class="h-full rounded-full"
+              [class]="subject.scheduled ? 'bg-primary' : 'bg-warning'"
               [style.width.%]="subject.total ? (subject.done / subject.total) * 100 : 0"
             ></div>
           </div>
           <p class="mt-3 text-xs text-muted">
-            {{ subject.done }} de {{ subject.total }} sessões concluídas
+            @if (subject.scheduled) {
+              {{ subject.done }} de {{ subject.total }} sessões concluídas
+            } @else {
+              Nenhuma sessão coube até a prova. Ajuste sua rotina para incluir esta disciplina.
+            }
           </p>
         </article>
       }
@@ -115,7 +145,7 @@
             <div class="grid gap-3">
               @for (session of group[1]; track session.id) {
                 <button
-                  (click)="selectedSession.set(session)"
+                  (click)="selectSession(session)"
                   class="flex items-center gap-4 rounded-2xl border border-line bg-white p-4 text-left hover:border-primary/40 hover:shadow-sm"
                 >
                   <span
@@ -132,7 +162,7 @@
                     ><b class="block truncate text-sm">{{ session.topicName }}</b
                     ><small class="text-muted"
                       >{{ session.subjectName }} · {{ session.minutes }} min ·
-                      {{ session.kind }}</small
+                      {{ kindLabel(session.kind) }}</small
                     ></span
                   ><span
                     class="rounded-full px-3 py-1 text-xs font-bold"
@@ -208,40 +238,101 @@
   </div>
 }
 @if (selectedSession(); as session) {
-  <div
-    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
-    (click)="selectedSession.set(null)"
-  >
-    <section (click)="$event.stopPropagation()" class="w-full max-w-2xl rounded-3xl bg-white p-7">
-      <header class="flex justify-between">
-        <div>
-          <p class="text-xs font-extrabold tracking-widest text-faint">
-            {{ session.kind }} · {{ session.subjectName }}
-          </p>
-          <h2 class="mt-1 text-2xl font-extrabold">{{ session.topicName }}</h2>
-        </div>
-        <button (click)="selectedSession.set(null)"><lucide-icon [img]="icons.X" /></button>
-      </header>
-      <div class="my-8 rounded-2xl bg-bg p-6">
-        <p class="text-sm leading-7 text-muted">
-          Use estes {{ session.minutes }} minutos para estudar o tópico com foco. Faça anotações
-          curtas, recupere os pontos principais sem consultar o material e encerre registrando a
-          conclusão.
+  <ciclo-dialog #dialog (dismiss)="closeSession()" panelClass="max-w-xl">
+    <header class="flex items-start justify-between gap-4 border-b border-line p-7 pb-5">
+      <div class="min-w-0">
+        <p class="text-xs font-extrabold tracking-widest text-faint">
+          {{ kindLabel(session.kind) }} · {{ session.subjectName }}
         </p>
+        <h2 [id]="dialog.labelId" class="mt-1 text-2xl font-extrabold">{{ session.topicName }}</h2>
       </div>
-      @if (session.status !== 'completed') {
-        <button
-          [disabled]="busy()"
-          (click)="complete(session)"
-          class="w-full rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
-        >
-          Concluir sessão
-        </button>
+      <button
+        type="button"
+        (click)="closeSession()"
+        class="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-muted hover:bg-bg"
+        aria-label="Fechar sessão"
+      >
+        <lucide-icon [img]="icons.X" [size]="18" />
+      </button>
+    </header>
+
+    <div class="p-7 pt-6">
+      <!-- O anel e o relógio só existem depois que a sessão começa, porque é o startedAt gravado
+           no servidor que dá a âncora do tempo. -->
+      @if (session.startedAt) {
+        <div class="flex flex-col items-center py-2">
+          <div
+            class="relative grid h-44 w-44 place-items-center rounded-full"
+            [style.background]="
+              'conic-gradient(var(--color-primary) ' +
+              focusProgress() * 360 +
+              'deg, var(--color-line) 0deg)'
+            "
+            role="timer"
+            [attr.aria-label]="'Tempo restante: ' + elapsedLabel()"
+            aria-live="off"
+          >
+            <div class="grid h-36 w-36 place-items-center rounded-full bg-white">
+              <span class="font-mono text-4xl font-extrabold tabular-nums">{{
+                elapsedLabel()
+              }}</span>
+            </div>
+          </div>
+          <p class="mt-4 text-xs font-bold text-muted">
+            @if (finishedFocus()) {
+              Tempo encerrado. Registre a conclusão abaixo.
+            } @else if (running()) {
+              Sessão em andamento
+            } @else {
+              Pausada
+            }
+          </p>
+        </div>
       } @else {
-        <p class="rounded-xl bg-success/10 p-4 text-center font-bold text-success">
-          Sessão concluída
+        <p class="rounded-2xl bg-bg p-6 text-sm leading-7 text-muted">
+          São <b class="text-text">{{ session.minutes }} minutos</b> planejados para este tópico. Ao
+          iniciar, o cronômetro começa e fica salvo — se você fechar a página, o tempo continua
+          correndo.
         </p>
       }
-    </section>
-  </div>
+
+      <div class="mt-6 grid gap-3">
+        @if (session.status !== 'completed') {
+          @if (!session.startedAt) {
+            <button
+              type="button"
+              [disabled]="busy()"
+              (click)="start()"
+              data-autofocus
+              class="w-full rounded-xl bg-primary px-5 py-3.5 font-extrabold text-white disabled:opacity-40"
+            >
+              {{ busy() ? 'Iniciando…' : 'Iniciar sessão de ' + session.minutes + ' min' }}
+            </button>
+          } @else {
+            <div class="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                (click)="togglePause()"
+                class="rounded-xl border border-line px-5 py-3 font-extrabold"
+              >
+                {{ running() ? 'Pausar' : 'Continuar' }}
+              </button>
+              <button
+                type="button"
+                [disabled]="busy()"
+                (click)="complete(session)"
+                class="rounded-xl bg-primary px-5 py-3 font-extrabold text-white disabled:opacity-40"
+              >
+                Concluir
+              </button>
+            </div>
+          }
+        } @else {
+          <p class="rounded-xl bg-success/10 p-4 text-center font-bold text-success">
+            Sessão concluída
+          </p>
+        }
+      </div>
+    </div>
+  </ciclo-dialog>
 }

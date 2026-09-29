@@ -7,6 +7,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 public class StudyApplicationService {
+  /** Abaixo disso não é sessão de estudo; 50 min é o teto de atenção que o plano assume. */
+  private static final int MIN_SESSION_MINUTES = 25;
+
+  private static final int MAX_SESSION_MINUTES = 50;
+
   private final Competitions competitions;
   private final Store store;
   private final Onboardings onboardings;
@@ -431,22 +436,29 @@ public class StudyApplicationService {
       throw new IllegalStateException("Aprove o edital antes de gerar o plano.");
     if (!examDate.isAfter(LocalDate.now()))
       throw new IllegalArgumentException("A data da prova deve estar no futuro.");
+
+    var rotation = new SubjectRotation(weightedSubjects(syllabus.subjects()));
     List<StudySession> sessions = new ArrayList<>();
-    List<Topic> topics = topics(syllabus.subjects());
-    int topicIndex = 0;
     LocalDate date = LocalDate.now();
-    while (date.isBefore(examDate) && topicIndex < topics.size()) {
+    while (date.isBefore(examDate) && rotation.hasPending()) {
       int weekday = date.getDayOfWeek().getValue();
-      int minutes =
+      int budget =
           availability.stream()
               .filter(a -> a.weekday() == weekday)
               .mapToInt(Availability::minutes)
               .findFirst()
               .orElse(0);
-      if (minutes >= 25) {
-        int remaining = minutes;
-        while (remaining >= 25 && topicIndex < topics.size()) {
-          var topic = topics.get(topicIndex++);
+      if (budget >= MIN_SESSION_MINUTES) {
+        int remaining = budget;
+        while (remaining >= MIN_SESSION_MINUTES && rotation.hasPending()) {
+          Topic topic = rotation.next();
+          // Sobra menor que uma sessão mínima é absorvida pela sessão atual, senão o usuário perde
+          // até 24 min por dia (90 = 50 + 40, mas 70 = 50 + 20 descartado).
+          int size = Math.min(MAX_SESSION_MINUTES, remaining);
+          int leftover = remaining - size;
+          if (leftover > 0
+              && leftover < MIN_SESSION_MINUTES
+              && size + leftover <= MAX_SESSION_MINUTES + MIN_SESSION_MINUTES) size = remaining;
           sessions.add(
               new StudySession(
                   UUID.randomUUID(),
@@ -454,14 +466,22 @@ public class StudyApplicationService {
                   topic.subject(),
                   topic.name(),
                   date,
-                  Math.min(50, remaining),
-                  topicIndex % 4 == 0 ? "review" : "study",
-                  "planned"));
-          remaining -= Math.min(50, remaining);
+                  size,
+                  sessions.size() % 4 == 3 ? "review" : "study",
+                  "planned",
+                  null));
+          remaining -= size;
         }
       }
       date = date.plusDays(1);
     }
+    // Cobertura: com prova próxima o tempo não comporta todos os tópicos. Antes, o corte era
+    // sequencial e comia sempre o fim da lista — justamente Conhecimentos Específicos, que aparece
+    // por último no edital. Com a rotação ponderada o que fica de fora é o menos relevante, mas
+    // ainda assim nenhuma disciplina pode terminar com zero sessão.
+    if (rotation.hasPending())
+      addCoveragePass(sessions, rotation, lastStudyableDay(examDate, availability));
+
     int version = store.plan(workspaceId, competitionId).map(p -> p.version() + 1).orElse(1);
     var now = Instant.now();
     return store.savePlanAndCompleteOnboarding(
@@ -474,6 +494,121 @@ public class StudyApplicationService {
             List.copyOf(sessions),
             now,
             now));
+  }
+
+  /**
+   * Garante ao menos uma sessão por disciplina no último dia útil antes da prova. A carga desse dia
+   * fica acima do que o usuário informou, e a tela avisa — mas descartar uma disciplina inteira
+   * silenciosamente é pior do que um último dia apertado.
+   */
+  private void addCoveragePass(
+      List<StudySession> sessions, SubjectRotation rotation, LocalDate day) {
+    if (day == null) return;
+    for (var subject : rotation.subjectsMissingSessions(sessions)) {
+      Topic topic = rotation.takeFrom(subject);
+      if (topic == null) continue;
+      sessions.add(
+          new StudySession(
+              UUID.randomUUID(),
+              topic.id(),
+              topic.subject(),
+              topic.name(),
+              day,
+              MIN_SESSION_MINUTES,
+              "study",
+              "planned",
+              null));
+    }
+  }
+
+  private LocalDate lastStudyableDay(LocalDate examDate, List<Availability> availability) {
+    LocalDate last = null;
+    for (LocalDate day = LocalDate.now(); day.isBefore(examDate); day = day.plusDays(1)) {
+      int weekday = day.getDayOfWeek().getValue();
+      boolean available =
+          availability.stream()
+              .anyMatch(a -> a.weekday() == weekday && a.minutes() >= MIN_SESSION_MINUTES);
+      if (available) last = day;
+    }
+    return last;
+  }
+
+  /**
+   * Disciplinas ordenadas por peso; o peso do edital é a prioridade que a tela promete respeitar.
+   */
+  private List<SubjectTopics> weightedSubjects(List<SyllabusSubject> subjects) {
+    List<SubjectTopics> out = new ArrayList<>();
+    for (SyllabusSubject subject : subjects) {
+      List<Topic> topics = new ArrayList<>();
+      walk(subject.name(), subject.topics(), topics);
+      if (topics.isEmpty()) continue;
+      // Sort estável: empate de peso mantém a ordem em que o edital lista o tópico.
+      topics.sort(Comparator.comparingDouble(Topic::weight).reversed());
+      double weight = subject.weight() > 0 ? subject.weight() : 1;
+      out.add(new SubjectTopics(subject.name(), weight, topics));
+    }
+    out.sort(
+        Comparator.comparingDouble(SubjectTopics::weight)
+            .reversed()
+            .thenComparing(SubjectTopics::name));
+    return out;
+  }
+
+  /**
+   * Round-robin ponderado (SWRR): distribui nas proporções do weight e, como todo mundo começa com
+   * o próprio peso, o primeiro ciclo já visita todas as disciplinas. É o que impede a
+   * Sequência-linear de inanição que existia antes.
+   */
+  private static final class SubjectRotation {
+    private final List<SubjectTopics> subjects;
+    private final Map<String, Double> credits = new LinkedHashMap<>();
+    private final Map<String, Deque<Topic>> queues = new LinkedHashMap<>();
+
+    SubjectRotation(List<SubjectTopics> subjects) {
+      this.subjects = subjects;
+      for (SubjectTopics subject : subjects) {
+        credits.put(subject.name(), 0d);
+        queues.put(subject.name(), new ArrayDeque<>(subject.topics()));
+      }
+    }
+
+    boolean hasPending() {
+      return subjects.stream().anyMatch(s -> !queues.get(s.name()).isEmpty());
+    }
+
+    Topic next() {
+      while (true) {
+        SubjectTargets best = null;
+        double bestCredit = Double.NEGATIVE_INFINITY;
+        for (SubjectTargets subject : subjects) {
+          if (queues.get(subject.name()).isEmpty()) continue;
+          double credit = credits.get(subject.name()) + subject.weight();
+          if (credit > bestCredit) {
+            bestCredit = credit;
+            best = subject;
+          }
+        }
+        if (best == null) return null;
+        double total = subjects.stream().mapToDouble(SubjectTargets::weight).sum();
+        credits.put(best.name(), bestCredit - total);
+        return queues.get(best.name()).poll();
+      }
+    }
+
+    List<String> subjectsMissingSessions(List<StudySession> sessions) {
+      var covered = new HashSet<String>();
+      for (StudySession session : sessions) covered.add(session.subjectName());
+      List<String> missing = new ArrayList<>();
+      for (SubjectTargets subject : subjects)
+        if (!queues.get(subject.name()).isEmpty() && !covered.contains(subject.name()))
+          missing.add(subject.name());
+      return missing;
+    }
+
+    Topic takeFrom(String name) {
+      Deque<Topic> queue = queues.get(name);
+      return queue == null || queue.isEmpty() ? null : queue.poll();
+    }
   }
 
   private Competition selectedCompetition(UUID workspaceId, OnboardingState state) {
@@ -517,6 +652,35 @@ public class StudyApplicationService {
 
   public Plan getPlan(UUID workspaceId, UUID competitionId) {
     return store.plan(workspaceId, competitionId).orElseThrow(NotFound::new);
+  }
+
+  /**
+   * Grava o início da sessão para o pomodoro ter âncora no servidor. Sem isso o cronômetro vive só
+   * na memória do navegador e zera a cada F5.
+   */
+  public Plan startSession(UUID workspaceId, UUID competitionId, UUID sessionId) {
+    var plan = getPlan(workspaceId, competitionId);
+    var started = Instant.now();
+    List<StudySession> sessions = new ArrayList<>(plan.sessions());
+    boolean found = false;
+    for (int i = 0; i < sessions.size(); i++) {
+      StudySession session = sessions.get(i);
+      if (!sessionId.equals(session.id())) continue;
+      // Reentrar em sessão pausada não reseta o tempo já investido.
+      sessions.set(i, session.startedAt() == null ? session.start(started) : session);
+      found = true;
+    }
+    if (!found) throw new NotFound();
+    return store.savePlan(
+        new Plan(
+            plan.id(),
+            workspaceId,
+            competitionId,
+            plan.version(),
+            plan.availability(),
+            List.copyOf(sessions),
+            plan.createdAt(),
+            Instant.now()));
   }
 
   public Plan completeSession(UUID workspaceId, UUID competitionId, UUID sessionId) {
@@ -592,21 +756,8 @@ public class StudyApplicationService {
       events.publish(
           "ai.execution.requested",
           jobId,
-          Map.of(
-              "jobId",
-              jobId.toString(),
-              "workspaceId",
-              workspaceId.toString(),
-              "operation",
-              "QUESTION_GENERATION",
-              "aggregateId",
-              competitionId.toString(),
-              "subjectId",
-              subjectId == null ? "" : subjectId,
-              "difficulty",
-              difficulty,
-              "count",
-              count - available.size()));
+          generationPayload(
+              workspaceId, competitionId, jobId, subjectId, difficulty, count - available.size()));
       return new StartSimulationResult(null, List.of(), jobId, "PENDING");
     }
     List<SimulationItem> items =
@@ -626,6 +777,44 @@ public class StudyApplicationService {
             null);
     var saved = store.saveSimulation(sim);
     return new StartSimulationResult(saved, available, null, "READY");
+  }
+
+  /**
+   * A IA só escreve questão boa se souber sobre o quê. Antes o payload mandava o subjectId cru — um
+   * slug sem nome e sem tópicos — então o modelo inventava conteúdo genérico. Aqui vão o nome da
+   * disciplina, o cargo, a banca e a lista de tópicos para ela escolher.
+   */
+  private Map<String, Object> generationPayload(
+      UUID workspaceId,
+      UUID competitionId,
+      UUID jobId,
+      String subjectId,
+      int difficulty,
+      int count) {
+    var competition = getCompetition(workspaceId, competitionId);
+    var syllabus = syllabus(workspaceId, competitionId);
+    SyllabusSubject subject =
+        subjectId == null
+            ? null
+            : syllabus.subjects().stream()
+                .filter(s -> s.id().equals(subjectId))
+                .findFirst()
+                .orElse(null);
+    List<Topic> scope =
+        subject == null ? topics(syllabus.subjects()) : topics(subject.name(), subject.topics());
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("jobId", jobId.toString());
+    payload.put("workspaceId", workspaceId.toString());
+    payload.put("operation", "QUESTION_GENERATION");
+    payload.put("aggregateId", competitionId.toString());
+    payload.put("subjectId", subject == null ? "" : subject.id());
+    payload.put("subjectName", subject == null ? "" : subject.name());
+    payload.put("role", competition.role() == null ? "" : competition.role());
+    payload.put("board", competition.board() == null ? "" : competition.board());
+    payload.put("difficulty", difficulty);
+    payload.put("count", count);
+    payload.put("topics", scope.stream().map(t -> Map.of("id", t.id(), "name", t.name())).toList());
+    return payload;
   }
 
   public Simulation answer(UUID workspaceId, UUID id, UUID questionId, int selectedIndex) {
@@ -799,6 +988,10 @@ public class StudyApplicationService {
                   .orElseThrow(NotFound::new)
               : null;
       UUID competitionId = source == null ? job.aggregateId() : source.competitionId();
+      // Questão extraída de PDF de banca entra como rascunho: é material de terceiros e o usuário
+      // precisa aprovar. Questão gerada para este usuário já vai publicada — antes ela nascia
+      // DRAFT e nada no produto a publicava, então o simulado com IA nunca tinha com o que montar.
+      String questionStatus = source == null ? "PUBLISHED" : "DRAFT";
       for (GeneratedQuestion q : result.questions()) {
         var now = Instant.now();
         store.saveQuestion(
@@ -809,7 +1002,7 @@ public class StudyApplicationService {
                 source == null ? null : source.id(),
                 q.topicId() == null || q.topicId().isBlank() ? "unclassified" : q.topicId(),
                 origin,
-                "DRAFT",
+                questionStatus,
                 q.boardStyle(),
                 q.difficulty() == 0 ? 3 : q.difficulty(),
                 q.statement(),
@@ -894,7 +1087,8 @@ public class StudyApplicationService {
           new Topic(
               node.id() == null || node.id().isBlank() ? UUID.randomUUID().toString() : node.id(),
               subject,
-              node.name() == null || node.name().isBlank() ? "Tópico" : node.name()));
+              node.name() == null || node.name().isBlank() ? "Tópico" : node.name(),
+              node.weight() > 0 ? node.weight() : 1));
       walk(subject, node.children(), out);
     }
   }
@@ -903,7 +1097,16 @@ public class StudyApplicationService {
     Optional<UUID> workspaceForJob(UUID id);
   }
 
-  private record Topic(String id, String subject, String name) {}
+  private record Topic(String id, String subject, String name, double weight) {}
+
+  private record SubjectTopics(String name, double weight, List<Topic> topics)
+      implements SubjectTargets {}
+
+  private interface SubjectTargets {
+    String name();
+
+    double weight();
+  }
 
   public record OnboardingStep(String key, String label, String status) {}
 

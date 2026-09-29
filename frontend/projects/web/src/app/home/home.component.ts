@@ -4,6 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { catchError, forkJoin, of, switchMap, takeWhile, timer } from 'rxjs';
 import { LucideAngularModule } from 'lucide-angular';
+import { DialogComponent } from 'ui';
 import {
   ApiClient,
   Competition,
@@ -21,7 +22,7 @@ import { icons } from '../shared/icons';
 
 @Component({
   standalone: true,
-  imports: [DatePipe, ReactiveFormsModule, RouterLink, LucideAngularModule],
+  imports: [DatePipe, ReactiveFormsModule, RouterLink, LucideAngularModule, DialogComponent],
   templateUrl: './home.component.html',
 })
 export class HomePage {

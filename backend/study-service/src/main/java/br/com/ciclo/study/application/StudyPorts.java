@@ -203,6 +203,11 @@ public final class StudyPorts {
 
   public record Availability(int weekday, int minutes) {}
 
+  /**
+   * Sessão planejada. {@code startedAt} é o que permite ao pomodoro sobreviver a recarregar a
+   * página ou trocar de aba: o cliente desconta a partir dele em vez de manter um cronômetro só na
+   * memória. {@code sessions} é jsonb, então planos antigos simplesmente leem null aqui.
+   */
   public record StudySession(
       UUID id,
       String topicId,
@@ -211,10 +216,16 @@ public final class StudyPorts {
       LocalDate date,
       int minutes,
       String kind,
-      String status) {
+      String status,
+      Instant startedAt) {
+    public StudySession start(Instant when) {
+      return new StudySession(
+          id, topicId, subjectName, topicName, date, minutes, kind, status, when);
+    }
+
     public StudySession complete() {
       return new StudySession(
-          id, topicId, subjectName, topicName, date, minutes, kind, "completed");
+          id, topicId, subjectName, topicName, date, minutes, kind, "completed", startedAt);
     }
   }
 

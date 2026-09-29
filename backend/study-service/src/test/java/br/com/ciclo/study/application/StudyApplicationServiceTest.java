@@ -32,13 +32,9 @@ class StudyApplicationServiceTest {
     var competitionId = UUID.randomUUID();
     var tomorrow = LocalDate.now().plusDays(1);
     var syllabus =
-        new Syllabus(
-            UUID.randomUUID(),
+        approvedSyllabus(
             workspaceId,
             competitionId,
-            UUID.randomUUID(),
-            1,
-            "APPROVED",
             List.of(
                 new SyllabusSubject(
                     "law",
@@ -47,10 +43,7 @@ class StudyApplicationServiceTest {
                     List.of(
                         new SyllabusTopic("constitutional", "Constitucional", 1, null, List.of()),
                         new SyllabusTopic(
-                            "administrative", "Administrativo", 1, null, List.of())))),
-            Instant.now(),
-            Instant.now(),
-            Instant.now());
+                            "administrative", "Administrativo", 1, null, List.of())))));
     when(store.syllabus(workspaceId, competitionId)).thenReturn(Optional.of(syllabus));
     when(store.plan(workspaceId, competitionId)).thenReturn(Optional.empty());
     when(store.savePlanAndCompleteOnboarding(any()))
@@ -68,6 +61,214 @@ class StudyApplicationServiceTest {
         .extracting(StudySession::topicId)
         .containsExactly("constitutional", "administrative");
     assertThat(plan.sessions()).allMatch(session -> session.date().equals(tomorrow));
+    // 100 min cabem em duas sessões de 50.
+    assertThat(plan.sessions().stream().mapToInt(StudySession::minutes).sum()).isEqualTo(100);
+  }
+
+  /**
+   * O bug reportado: o plano era uma lista sequencial e o corte por data da prova comia sempre o
+   * fim da lista — justamente Conhecimentos Específicos, que aparece por último no edital. Agora
+   * toda disciplina do edital entra no plano.
+   */
+  @Test
+  void everySubjectFromTheSyllabusGetsSessionsEvenWhenTheExamIsClose() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var tomorrow = LocalDate.now().plusDays(1);
+    var syllabus = approvedSyllabus(workspaceId, competitionId, subjectsOf(1, 1, 1, 1, 1));
+    when(store.syllabus(workspaceId, competitionId)).thenReturn(Optional.of(syllabus));
+    when(store.plan(workspaceId, competitionId)).thenReturn(Optional.empty());
+    when(store.savePlanAndCompleteOnboarding(any()))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    // Só um dia de estudo para cinco disciplinas: o teste é se nenhuma some.
+    var plan =
+        service.generatePlan(
+            workspaceId,
+            competitionId,
+            tomorrow.plusDays(1),
+            List.of(new Availability(tomorrow.getDayOfWeek().getValue(), 50)));
+
+    assertThat(plan.sessions())
+        .extracting(StudySession::subjectName)
+        .contains("Disciplina 1", "Disciplina 2", "Disciplina 3", "Disciplina 4", "Disciplina 5");
+  }
+
+  @Test
+  void heavierSubjectsGetMoreSessions() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var tomorrow = LocalDate.now().plusDays(1);
+    var syllabus =
+        approvedSyllabus(
+            workspaceId,
+            competitionId,
+            List.of(
+                new SyllabusSubject(
+                    "leve", "Leve", 1, List.of(new SyllabusTopic("l1", "L1", 1, null, List.of()))),
+                new SyllabusSubject(
+                    "pesado",
+                    "Pesado",
+                    4,
+                    List.of(
+                        new SyllabusTopic("p1", "P1", 1, null, List.of()),
+                        new SyllabusTopic("p2", "P2", 1, null, List.of()),
+                        new SyllabusTopic("p3", "P3", 1, null, List.of()),
+                        new SyllabusTopic("p4", "P4", 1, null, List.of())))));
+    when(store.syllabus(workspaceId, competitionId)).thenReturn(Optional.of(syllabus));
+    when(store.plan(workspaceId, competitionId)).thenReturn(Optional.empty());
+    when(store.savePlanAndCompleteOnboarding(any()))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    // Disponibilidade nos sete dias: com um único dia útil não há como comparar proporções.
+    var everyDay = new java.util.ArrayList<Availability>();
+    for (int weekday = 1; weekday <= 7; weekday++) everyDay.add(new Availability(weekday, 50));
+
+    var plan = service.generatePlan(workspaceId, competitionId, tomorrow.plusDays(4), everyDay);
+
+    long heavy = plan.sessions().stream().filter(s -> s.subjectName().equals("Pesado")).count();
+    long light = plan.sessions().stream().filter(s -> s.subjectName().equals("Leve")).count();
+    assertThat(heavy).isGreaterThan(light);
+  }
+
+  @Test
+  void interleavesSubjectsInsteadOfDrainingOneBeforeTheNext() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var tomorrow = LocalDate.now().plusDays(1);
+    var syllabus = approvedSyllabus(workspaceId, competitionId, subjectsOf(1, 1, 1));
+    when(store.syllabus(workspaceId, competitionId)).thenReturn(Optional.of(syllabus));
+    when(store.plan(workspaceId, competitionId)).thenReturn(Optional.empty());
+    when(store.savePlanAndCompleteOnboarding(any()))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    var plan =
+        service.generatePlan(
+            workspaceId,
+            competitionId,
+            tomorrow.plusDays(2),
+            List.of(new Availability(tomorrow.getDayOfWeek().getValue(), 100)));
+
+    assertThat(plan.sessions().subList(0, 3))
+        .extracting(StudySession::subjectName)
+        .containsExactlyInAnyOrder("Disciplina 1", "Disciplina 2", "Disciplina 3");
+  }
+
+  @Test
+  void absorbsTheRemainderInsteadOfDiscardingIt() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var tomorrow = LocalDate.now().plusDays(1);
+    // 70 min: antes virava 50 + 20 (20 jogados fora). Agora uma sessão de 70.
+    var syllabus =
+        approvedSyllabus(
+            workspaceId,
+            competitionId,
+            List.of(
+                new SyllabusSubject(
+                    "unica",
+                    "Única",
+                    1,
+                    List.of(new SyllabusTopic("t1", "T1", 1, null, List.of())))));
+    when(store.syllabus(workspaceId, competitionId)).thenReturn(Optional.of(syllabus));
+    when(store.plan(workspaceId, competitionId)).thenReturn(Optional.empty());
+    when(store.savePlanAndCompleteOnboarding(any()))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    var plan =
+        service.generatePlan(
+            workspaceId,
+            competitionId,
+            tomorrow.plusDays(1),
+            List.of(new Availability(tomorrow.getDayOfWeek().getValue(), 70)));
+
+    assertThat(plan.sessions().stream().mapToInt(StudySession::minutes).sum()).isEqualTo(70);
+  }
+
+  @Test
+  void recordsTheStartInstantSoThePomodoroSurvivesAReload() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var session =
+        new StudySession(
+            UUID.randomUUID(), "t1", "S", "T1", LocalDate.now(), 50, "study", "planned", null);
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(
+            Optional.of(
+                new Plan(
+                    UUID.randomUUID(),
+                    workspaceId,
+                    competitionId,
+                    1,
+                    List.of(),
+                    List.of(session),
+                    Instant.now(),
+                    Instant.now())));
+    when(store.savePlan(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var plan = service.startSession(workspaceId, competitionId, session.id());
+
+    assertThat(plan.sessions().get(0).startedAt()).isNotNull();
+  }
+
+  @Test
+  void reenteringASessionDoesNotResetTheTimeAlreadySpent() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var started = Instant.now().minusSeconds(600);
+    var session =
+        new StudySession(
+            UUID.randomUUID(), "t1", "S", "T1", LocalDate.now(), 50, "study", "planned", started);
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(
+            Optional.of(
+                new Plan(
+                    UUID.randomUUID(),
+                    workspaceId,
+                    competitionId,
+                    1,
+                    List.of(),
+                    List.of(session),
+                    Instant.now(),
+                    Instant.now())));
+    when(store.savePlan(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var plan = service.startSession(workspaceId, competitionId, session.id());
+
+    assertThat(plan.sessions().get(0).startedAt()).isEqualTo(started);
+  }
+
+  private static List<SyllabusSubject> subjectsOf(double... weights) {
+    var out = new java.util.ArrayList<SyllabusSubject>();
+    for (int i = 0; i < weights.length; i++)
+      out.add(
+          new SyllabusSubject(
+              "d" + (i + 1),
+              "Disciplina " + (i + 1),
+              weights[i],
+              List.of(new SyllabusTopic("t" + (i + 1), "Tópico " + (i + 1), 1, null, List.of()))));
+    return out;
+  }
+
+  private static Syllabus approvedSyllabus(
+      UUID workspaceId, UUID competitionId, List<SyllabusSubject> subjects) {
+    return new Syllabus(
+        UUID.randomUUID(),
+        workspaceId,
+        competitionId,
+        UUID.randomUUID(),
+        1,
+        "APPROVED",
+        subjects,
+        Instant.now(),
+        Instant.now(),
+        Instant.now());
   }
 
   @Test
@@ -184,7 +385,8 @@ class StudyApplicationServiceTest {
             LocalDate.now(),
             50,
             "study",
-            "completed");
+            "completed",
+            null);
     var plan =
         new Plan(
             UUID.randomUUID(),
