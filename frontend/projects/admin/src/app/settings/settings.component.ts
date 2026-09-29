@@ -158,13 +158,8 @@ export class SettingsPage {
   }
   route(operation: string, provider: string, model: string) {
     if (!provider || !model) return;
-    const providerLabel =
-      this.providers()?.providers.find((p) => p.id === provider)?.label ?? provider;
-    const modelLabel = this.models(provider).find((m) => m.id === model)?.label ?? model;
-    if (
-      !confirm(`Aplicar ${providerLabel} / ${modelLabel} para ${this.operationLabel(operation)}?`)
-    )
-      return;
+    // No confirm() here: unlike removing a key, a route can just be switched again, and the
+    // current route is already visible before applying, with success/error shown right after.
     this.clearAiFeedback();
     this.api.updateRoutes([{ operation, provider, model }]).subscribe({
       next: (v) => {

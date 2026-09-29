@@ -203,28 +203,32 @@ describe('admin AI provider controls', () => {
     expect(component.providers()?.providers).toEqual([]);
   });
 
-  it('does not change the route when the confirmation is declined', () => {
+  // Unlike removeKey(), route() does NOT gate on confirm(): the current route is already
+  // visible before applying, and it's a frequently-repeated action while tuning routing, not a
+  // one-off destructive one, so a blocking dialog on every click would only get in the way.
+  it('applies the route immediately and reports success, without a confirm prompt', () => {
     const fixture = TestBed.createComponent(SettingsPage);
     const component = fixture.componentInstance;
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-    component.route('SYLLABUS_EXTRACTION', 'OPENAI', 'gpt-5.4-mini');
-
-    expect(api.updateRoutes).not.toHaveBeenCalled();
-  });
-
-  it('applies the route and confirms success once accepted', () => {
-    const fixture = TestBed.createComponent(SettingsPage);
-    const component = fixture.componentInstance;
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, 'confirm');
     api.updateRoutes.mockReturnValue(of({ providers: [provider], routing: {} }));
 
     component.route('SYLLABUS_EXTRACTION', 'OPENAI', 'gpt-5.4-mini');
 
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(api.updateRoutes).toHaveBeenCalledWith([
       { operation: 'SYLLABUS_EXTRACTION', provider: 'OPENAI', model: 'gpt-5.4-mini' },
     ]);
     expect(component.aiMessage()).toBe('Rota atualizada.');
+  });
+
+  it('does nothing when the route or model is left unpicked', () => {
+    const fixture = TestBed.createComponent(SettingsPage);
+    const component = fixture.componentInstance;
+
+    component.route('SYLLABUS_EXTRACTION', '', 'gpt-5.4-mini');
+    component.route('SYLLABUS_EXTRACTION', 'OPENAI', '');
+
+    expect(api.updateRoutes).not.toHaveBeenCalled();
   });
 
   it('shows the current provider and model for an operation, in plain text', () => {

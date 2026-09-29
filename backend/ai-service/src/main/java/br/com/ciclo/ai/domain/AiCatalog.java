@@ -6,9 +6,19 @@ public final class AiCatalog {
   private AiCatalog() {}
 
   public enum Provider {
-    OPENAI,
-    ANTHROPIC,
-    GEMINI
+    OPENAI("OpenAI"),
+    ANTHROPIC("Anthropic"),
+    GEMINI("Gemini");
+
+    private final String displayName;
+
+    Provider(String displayName) {
+      this.displayName = displayName;
+    }
+
+    public String displayName() {
+      return displayName;
+    }
   }
 
   public enum Operation {

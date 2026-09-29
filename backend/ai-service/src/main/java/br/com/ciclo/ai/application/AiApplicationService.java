@@ -42,7 +42,7 @@ public class AiApplicationService {
                   String env = envKeys.get(p);
                   return new ProviderView(
                       p,
-                      p.name(),
+                      p.displayName(),
                       saved.isPresent() || env != null,
                       saved.isPresent() ? "PANEL" : env != null ? "ENV" : null,
                       saved
