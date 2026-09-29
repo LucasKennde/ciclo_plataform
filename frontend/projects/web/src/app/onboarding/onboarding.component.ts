@@ -24,6 +24,31 @@ function uploadErrorMessage(error: unknown): string {
   return fallback;
 }
 
+/**
+ * O usuário não pode agir sobre um código de política ou sobre a mensagem crua do provedor. O
+ * errorCode vira uma frase acionável e a mensagem do backend fica como detalhe — é ela que diz, por
+ * exemplo, que a resposta da IA foi cortada no limite de tokens.
+ */
+const JOB_FAILURES: Record<string, string> = {
+  PROVIDER_ERROR: 'A IA não conseguiu ler este edital. Tente novamente em instantes.',
+  AI_ROUTE_MISSING:
+    'Nenhum modelo de IA está configurado para extrair o edital. Peça ao administrador para configurar em Configurações → IA.',
+  MANUAL_BLOCK: 'Este processamento foi bloqueado. Fale com o suporte.',
+  KILL_SWITCH: 'O processamento por IA está pausado no momento. Tente novamente mais tarde.',
+  PER_MINUTE: 'Você atingiu o limite de pedidos por minuto. Tente novamente em instantes.',
+  PER_HOUR: 'Você atingiu o limite de pedidos por hora. Tente mais tarde.',
+  PER_DAY: 'Você atingiu o limite diário de pedidos por IA.',
+  PRINCIPAL_TOKENS_DAY: 'Você atingiu o limite diário de tokens por IA.',
+  GLOBAL_PER_MINUTE: 'A plataforma está no limite de pedidos por minuto. Tente em instantes.',
+  GLOBAL_TOKENS_DAY: 'A plataforma atingiu o limite diário de tokens por IA.',
+};
+
+const JOB_STATUS: Record<string, string> = {
+  QUEUED: 'Na fila…',
+  COMPLETED: 'Concluído',
+  FAILED: 'Falhou',
+};
+
 @Component({
   standalone: true,
   imports: [ReactiveFormsModule, LucideAngularModule],
@@ -38,6 +63,12 @@ export class OnboardingPage implements OnDestroy {
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  /**
+   * Falha do job de IA em um sinal separado de `error`: `load()` limpa `error`, e sem esta separação
+   * o motivo da falha sumiria da tela assim que recarregássemos o estado para voltar à etapa do
+   * edital.
+   */
+  protected readonly jobError = signal('');
   protected readonly state = signal<OnboardingState | null>(null);
   protected readonly competition = signal<Competition | null>(null);
   protected readonly syllabus = signal<Syllabus | null>(null);
@@ -146,6 +177,7 @@ export class OnboardingPage implements OnDestroy {
     if (!file || !competition) return;
     this.busy.set(true);
     this.error.set('');
+    this.jobError.set('');
     this.api.uploadDocument(competition.id, file).subscribe({
       next: ({ jobId }) => this.watch(jobId),
       error: (error: unknown) => this.fail(uploadErrorMessage(error)),
@@ -158,6 +190,7 @@ export class OnboardingPage implements OnDestroy {
     if (!competition || !processing?.aggregateId) return;
     this.busy.set(true);
     this.error.set('');
+    this.jobError.set('');
     this.api.reprocessDocument(competition.id, processing.aggregateId).subscribe({
       next: ({ jobId }) => {
         this.busy.set(false);
@@ -281,6 +314,7 @@ export class OnboardingPage implements OnDestroy {
   private watch(jobId: string): void {
     this.processingSubscription?.unsubscribe();
     this.busy.set(true);
+    this.jobError.set('');
     this.processingSubscription = timer(0, 1500)
       .pipe(
         switchMap(() => this.api.job(jobId)),
@@ -295,11 +329,31 @@ export class OnboardingPage implements OnDestroy {
           }
           if (job.status === 'FAILED') {
             this.busy.set(false);
-            this.error.set(job.errorMessage || 'Não foi possível processar o edital.');
+            this.jobError.set(this.explain(job));
+            // Sem este load() a tela ficava presa no painel "Organizando seu conteúdo…" com o
+            // status cru FAILED, e o botão "Tentar novamente" — que só existe na etapa DOCUMENT —
+            // nunca aparecia. O backend devolve currentStep=DOCUMENT para job falho, então é
+            // reload que tira o usuário do beco sem refazer upload.
+            this.load();
           }
         },
         error: () => this.fail('Perdemos a conexão com o processamento. Tente novamente.'),
       });
+  }
+
+  /** Frase acionável para o usuário; a mensagem do provedor vira detalhe menor. */
+  private explain(job: ProcessingJob): string {
+    const known = job.errorCode ? JOB_FAILURES[job.errorCode] : undefined;
+    const headline = known ?? 'Não foi possível processar o edital.';
+    // Com código desconhecido a mensagem do backend é a única informação que existe — escondê-la
+    // deixaria o usuário sem nenhuma pista.
+    const detail = job.errorMessage;
+    return detail && detail !== headline ? `${headline} (${detail})` : headline;
+  }
+
+  protected statusLabel(status?: string | null): string {
+    if (!status) return 'Processando…';
+    return JOB_STATUS[status] ?? status;
   }
 
   private fail(message: string): void {

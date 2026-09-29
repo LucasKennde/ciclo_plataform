@@ -58,10 +58,12 @@
       </div>
     </header>
 
-    @if (error()) {
+    @if (error() || jobError()) {
       <div class="mt-5 flex items-start gap-3 rounded-2xl bg-danger/10 p-4 text-sm text-danger">
         <lucide-icon [img]="icons.CircleAlert" [size]="19" class="mt-0.5 shrink-0" />
-        <p>{{ error() }}</p>
+        <div class="min-w-0">
+          <p class="font-bold">{{ error() || jobError() }}</p>
+        </div>
       </div>
     }
 
@@ -141,29 +143,35 @@
               Vamos identificar automaticamente disciplinas e tópicos para
               {{ competition()?.title }}.
             </p>
-            <label
-              class="mt-7 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-line p-10 transition hover:border-primary hover:bg-primary-soft/30"
-            >
-              <lucide-icon [img]="icons.FileText" [size]="32" class="text-primary" />
-              <b class="mt-4 text-sm">Escolher edital em PDF</b>
-              <span class="mt-1 text-xs text-muted">Arquivo de até 30 MB</span>
-              <input
-                type="file"
-                accept="application/pdf"
-                class="hidden"
-                [disabled]="busy()"
-                (change)="upload($event)"
-              />
-            </label>
             @if (processing()?.status === 'FAILED') {
+              <p class="mt-5 text-sm text-danger">{{ jobError() }}</p>
               <button
                 type="button"
                 (click)="retry()"
                 [disabled]="busy()"
-                class="mt-5 text-sm font-extrabold text-primary disabled:opacity-50"
+                class="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 font-extrabold text-white disabled:opacity-50"
               >
-                Tentar novamente
+                <lucide-icon [img]="icons.RotateCcw" [size]="16" />
+                Tentar processar o edital novamente
               </button>
+              <p class="mt-3 text-xs text-muted">
+                O PDF continua salvo. Não é preciso enviar o arquivo outra vez.
+              </p>
+            } @else {
+              <label
+                class="mt-7 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-line p-10 transition hover:border-primary hover:bg-primary-soft/30"
+              >
+                <lucide-icon [img]="icons.FileText" [size]="32" class="text-primary" />
+                <b class="mt-4 text-sm">Escolher edital em PDF</b>
+                <span class="mt-1 text-xs text-muted">Arquivo de até 30 MB</span>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  class="hidden"
+                  [disabled]="busy()"
+                  (change)="upload($event)"
+                />
+              </label>
             }
           </div>
         }
@@ -181,7 +189,7 @@
             </p>
             <div class="mx-auto mt-7 max-w-md">
               <div class="flex justify-between text-xs font-extrabold">
-                <span>{{ processing()?.status || 'PROCESSANDO' }}</span>
+                <span>{{ statusLabel(processing()?.status) }}</span>
                 <span>{{ processing()?.progress ?? 0 }}%</span>
               </div>
               <div class="mt-2 h-2 overflow-hidden rounded-full bg-line">

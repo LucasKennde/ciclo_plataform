@@ -39,6 +39,7 @@ describe('OnboardingPage', () => {
     updateOnboarding: vi.fn(),
     syllabus: vi.fn(),
     uploadDocument: vi.fn(),
+    reprocessDocument: vi.fn(),
     job: vi.fn(),
     reviseSyllabus: vi.fn(),
     approveSyllabus: vi.fn(),
@@ -79,6 +80,109 @@ describe('OnboardingPage', () => {
     expect(api.updateOnboarding).toHaveBeenCalledWith({
       dismissed: false,
       competitionId: competition.id,
+    });
+  });
+
+  describe('a falha da IA no processamento do edital', () => {
+    const failedJob = (errorCode: string | null, errorMessage: string | null) => ({
+      id: 'job-id',
+      aggregateId: 'document-id',
+      type: 'SYLLABUS_EXTRACTION',
+      status: 'FAILED',
+      progress: 0,
+      errorCode,
+      errorMessage,
+    });
+
+    // Estado que o backend devolve para um job que falhou: a etapa volta a ser DOCUMENT, que é
+    // onde o botão de reprocessar mora.
+    const failedState: OnboardingState = {
+      ...initial,
+      status: 'IN_PROGRESS',
+      currentStep: 'DOCUMENT',
+      competitionId: competition.id,
+      processingJob: failedJob('PROVIDER_ERROR', 'A IA não conseguiu ler este edital.'),
+    };
+
+    // timer(0, 1500) emite de forma assíncrona: sem esperar o tick o job ainda não chegou.
+    const runUntilFailed = async (job: ReturnType<typeof failedJob>) => {
+      api.job.mockReturnValue(of(job));
+      // load() refaz onboarding + competition; sem o mock do competition o subscribe estoura.
+      api.competition.mockReturnValue(of(competition));
+      // Vale para todas as chamadas: o construtor também faz um load() e é o reload pós-falha que
+      // precisa devolver a etapa DOCUMENT.
+      const onboarding = vi.spyOn(api, 'onboarding').mockReturnValue(of(failedState));
+      const fixture = TestBed.createComponent(OnboardingPage);
+      const component = fixture.componentInstance as any;
+      component.competition.set(competition);
+      component.processingSubscription?.unsubscribe();
+      component['watch']('job-id');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return { component, onboarding };
+    };
+
+    // Antes, FAILED apenas escrevia em error() e a tela ficava presa no painel "Organizando seu
+    // conteúdo…" com o status cru, sem botão de retry: o usuário não tinha como sair dali.
+    it('volta para a etapa do edital ao falhar, em vez de travar na de processamento', async () => {
+      const { component, onboarding } = await runUntilFailed(
+        failedJob('PROVIDER_ERROR', 'A resposta da IA foi cortada no limite de tokens.'),
+      );
+
+      // Uma chamada vem do construtor, a segunda do reload que a falha dispara.
+      expect(onboarding).toHaveBeenCalledTimes(2);
+      expect(component.state().currentStep).toBe('DOCUMENT');
+      expect(component.busy()).toBe(false);
+    });
+
+    it('traduz o errorCode em uma frase acionável e mantém o detalhe do provedor', async () => {
+      const { component } = await runUntilFailed(
+        failedJob('PROVIDER_ERROR', 'A resposta da IA foi cortada no limite de 32000 tokens.'),
+      );
+
+      expect(component.jobError()).toContain('A IA não conseguiu ler este edital');
+      expect(component.jobError()).toContain('32000 tokens');
+    });
+
+    it('aponta a configuração do admin quando não há rota de IA', async () => {
+      const { component } = await runUntilFailed(
+        failedJob('AI_ROUTE_MISSING', 'Nenhuma rota configurada para SYLLABUS_EXTRACTION'),
+      );
+
+      expect(component.jobError()).toContain('Configurações → IA');
+    });
+
+    it('não mostra o código cru quando o erro é desconhecido', async () => {
+      const { component } = await runUntilFailed(failedJob('CODIGO_NOVO', 'detalhe do backend'));
+
+      expect(component.jobError()).toBe(
+        'Não foi possível processar o edital. (detalhe do backend)',
+      );
+    });
+
+    it('limpa a falha anterior quando o usuário tenta de novo', async () => {
+      const { component } = await runUntilFailed(failedJob('PROVIDER_ERROR', 'x'));
+      expect(component.jobError()).not.toBe('');
+      api.reprocessDocument.mockReturnValue(
+        of({ documentId: 'document-id', jobId: 'job-2', statusUrl: '' }),
+      );
+      api.job.mockReturnValue(
+        of({ ...failedJob('PROVIDER_ERROR', 'x'), status: 'QUEUED', progress: 0 }),
+      );
+
+      component.retry();
+
+      expect(component.jobError()).toBe('');
+      expect(api.reprocessDocument).toHaveBeenCalledWith(competition.id, 'document-id');
+    });
+
+    it('traduz o status interno para um rótulo legível', () => {
+      const fixture = TestBed.createComponent(OnboardingPage);
+      const component = fixture.componentInstance as any;
+
+      expect(component.statusLabel('QUEUED')).toBe('Na fila…');
+      expect(component.statusLabel('COMPLETED')).toBe('Concluído');
+      expect(component.statusLabel('FAILED')).toBe('Falhou');
+      expect(component.statusLabel(null)).toBe('Processando…');
     });
   });
 
