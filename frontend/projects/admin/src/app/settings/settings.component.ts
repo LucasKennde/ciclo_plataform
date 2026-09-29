@@ -269,6 +269,17 @@ export class SettingsPage {
     const model = provider?.models.find((m) => m.id === route.model);
     return `${provider?.label ?? route.provider} · ${model?.label ?? route.model}`;
   }
+  /**
+   * Rota gravada apontando para um modelo que saiu do registro — o código antigo gravava
+   * "gpt-5.4-mini" e a execução passaria a falhar com PROVIDER_ERROR sem aviso na tela.
+   */
+  routeIsOrphaned(operation: string): boolean {
+    const route = this.providers()?.routing?.[operation];
+    if (!route) return false;
+    return !this.providers()
+      ?.providers.find((p) => p.id === route.provider)
+      ?.models.some((m) => m.id === route.model);
+  }
   route(operation: string, provider: string, model: string) {
     if (!provider || !model) return;
     // No confirm() here: unlike removing a key, a route can just be switched again, and the

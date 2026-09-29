@@ -57,7 +57,7 @@ public class AiRepositoryAdapter implements Repository {
 
   public List<Model> models() {
     return db.query(
-        "SELECT * FROM ai_models ORDER BY provider,id",
+        "SELECT * FROM ai_models ORDER BY provider,model",
         (r, n) ->
             new Model(
                 Provider.valueOf(r.getString("provider")),

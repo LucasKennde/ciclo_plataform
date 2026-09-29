@@ -309,6 +309,25 @@ describe('admin AI provider controls', () => {
     expect(component.selectedModel('SYLLABUS_EXTRACTION')).toBe('gpt-4.1');
   });
 
+  it('flags a route pointing at a model that is no longer registered', () => {
+    api.aiProviders.mockReturnValue(
+      of(
+        overview({
+          routing: {
+            SYLLABUS_EXTRACTION: { provider: 'OPENAI', model: 'gpt-5.4-mini' },
+            MOCK_EXAM_EXTRACTION: { provider: 'OPENAI', model: 'gpt-4.1' },
+          },
+        }),
+      ),
+    );
+    const fixture = TestBed.createComponent(SettingsPage);
+    const component = fixture.componentInstance;
+
+    expect(component.routeIsOrphaned('SYLLABUS_EXTRACTION')).toBe(true);
+    expect(component.routeIsOrphaned('MOCK_EXAM_EXTRACTION')).toBe(false);
+    expect(component.routeIsOrphaned('QUESTION_GENERATION')).toBe(false);
+  });
+
   it('only offers models that support the operation being routed', () => {
     api.aiProviders.mockReturnValue(
       of(

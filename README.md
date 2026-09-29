@@ -19,6 +19,25 @@ docker compose up --build
 
 O administrador local inicial é criado pelas variáveis `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD`.
 
+### Porta do gateway
+
+O `docker-compose.yml` publica o gateway em `8080`. Se essa porta já estiver ocupada na máquina,
+publique outra com um override e aponte o dev server para ela:
+
+```bash
+cat > ports-override.yml <<'YAML'
+services:
+  gateway:
+    ports: !override ["18080:8080"]
+YAML
+
+docker compose -f docker-compose.yml -f ports-override.yml up -d
+GATEWAY_URL=http://localhost:18080 corepack pnpm --dir frontend start:admin
+```
+
+Sem `GATEWAY_URL`, o dev server continua apontando para `8080`; se esse endereço não for o gateway,
+toda chamada `/api` responde 504 e as telas abrem vazias.
+
 ## Implantação no Coolify
 
 O arquivo `docker-compose.yml` é destinado ao desenvolvimento local e inicia

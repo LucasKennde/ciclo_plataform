@@ -195,6 +195,9 @@
           <div>
             <b>{{ operationLabel(op) }}</b>
             <small>Atual: {{ routeLabel(op) }}</small>
+            @if (routeIsOrphaned(op)) {
+              <small class="error">Modelo removido do registro — reaponte a rota abaixo.</small>
+            }
           </div>
           <select
             [value]="selectedProvider(op)"
