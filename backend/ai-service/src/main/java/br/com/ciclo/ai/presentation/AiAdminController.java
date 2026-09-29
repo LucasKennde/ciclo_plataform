@@ -11,6 +11,7 @@ import java.util.*;
 import org.springframework.http.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -47,8 +48,40 @@ public class AiAdminController {
   }
 
   @PutMapping("/routing")
-  Overview routes(@RequestBody List<RouteInput> routes, @AuthenticationPrincipal Jwt jwt) {
-    return ai.updateRoutes(routes, jwt.getSubject());
+  // A fronteira transacional fica na apresentação de propósito: a regra do ArchUnit proíbe
+  // org.springframework na camada application. Sem ela, um lote com uma rota inválida no meio
+  // deixava as rotas anteriores já gravadas.
+  @Transactional
+  Overview routes(
+      @NotEmpty @Valid @RequestBody List<RouteRequest> routes, @AuthenticationPrincipal Jwt jwt) {
+    return ai.updateRoutes(
+        routes.stream().map(r -> new RouteInput(r.operation(), r.provider(), r.model())).toList(),
+        jwt.getSubject());
+  }
+
+  @PostMapping("/models")
+  @Transactional
+  @ResponseStatus(HttpStatus.CREATED)
+  Overview saveModel(@Valid @RequestBody ModelRequest r, @AuthenticationPrincipal Jwt jwt) {
+    return ai.registerModel(
+        new ModelInput(
+            r.provider(),
+            r.id(),
+            r.label(),
+            r.inputUsdPerMillion().doubleValue(),
+            r.outputUsdPerMillion().doubleValue(),
+            r.operations()),
+        jwt.getSubject());
+  }
+
+  @DeleteMapping("/models/{provider}/{modelId}")
+  @Transactional
+  @ResponseStatus(HttpStatus.OK)
+  Overview removeModel(
+      @PathVariable String provider,
+      @PathVariable String modelId,
+      @AuthenticationPrincipal Jwt jwt) {
+    return ai.removeModel(provider, modelId, jwt.getSubject());
   }
 
   @GetMapping("/usage")
@@ -63,7 +96,7 @@ public class AiAdminController {
 
   @PostMapping("/usage/blocks")
   @ResponseStatus(HttpStatus.CREATED)
-  void block(@RequestBody BlockRequest r, @AuthenticationPrincipal Jwt jwt) {
+  void block(@Valid @RequestBody BlockRequest r, @AuthenticationPrincipal Jwt jwt) {
     ai.block(r.principal(), r.reason(), r.durationSeconds(), jwt.getSubject());
   }
 
@@ -79,6 +112,17 @@ public class AiAdminController {
   }
 
   record KeyRequest(@NotBlank String apiKey, boolean force) {}
+
+  record RouteRequest(
+      @NotBlank String operation, @NotBlank String provider, @NotBlank String model) {}
+
+  record ModelRequest(
+      @NotBlank String provider,
+      @NotBlank @Size(max = 120) String id,
+      @NotBlank @Size(max = 120) String label,
+      @NotNull @PositiveOrZero Double inputUsdPerMillion,
+      @NotNull @PositiveOrZero Double outputUsdPerMillion,
+      @NotEmpty List<@NotBlank String> operations) {}
 
   record BlockRequest(@NotBlank String principal, @NotBlank String reason, Long durationSeconds) {}
 }

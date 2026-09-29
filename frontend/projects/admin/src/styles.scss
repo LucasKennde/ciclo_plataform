@@ -298,6 +298,56 @@ textarea {
   display: grid;
   gap: 0.5rem;
 }
+.muted {
+  color: var(--muted);
+}
+.model-registry {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+.model-group {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+.model-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.model-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.model-list li > div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.model-list code {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.operation-picker {
+  display: grid;
+  gap: 0.5rem;
+}
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+}
 .route {
   display: grid;
   grid-template-columns: 1.5fr 1fr 1.5fr auto;
@@ -319,6 +369,9 @@ form {
 }
 @media (max-width: 900px) {
   .providers {
+    grid-template-columns: 1fr;
+  }
+  .model-registry {
     grid-template-columns: 1fr;
   }
   .route {

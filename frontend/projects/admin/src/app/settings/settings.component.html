@@ -28,6 +28,14 @@
 }
 @if (tab() === 'IA') {
   <section>
+    @if (providers(); as overview) {
+      @if (!overview.encryptionAvailable) {
+        <p class="error">
+          AI_KEYS_MASTER_KEY não configurada. Sem uma chave de 32 bytes em Base64 nenhuma credencial
+          pode ser salva — defina a variável e reinicie o serviço de IA.
+        </p>
+      }
+    }
     @if (aiMessage()) {
       <p class="success">{{ aiMessage() }}</p>
     }
@@ -62,53 +70,167 @@
             /></label>
             <button
               class="button"
-              [disabled]="aiBusy() === p.id"
+              [disabled]="aiBusy() === p.id || !providers()?.encryptionAvailable"
               (click)="saveKey(p.id, keyDraft(p.id))"
             >
               {{ aiBusy() === p.id ? 'Testando…' : 'Salvar e testar' }}
             </button>
-            <button class="link" [disabled]="aiBusy() === p.id" (click)="test(p.id)">Testar</button>
+            <button
+              class="link"
+              [disabled]="aiBusy() === p.id || !p.configured"
+              [title]="p.configured ? '' : 'Salve uma chave antes de testar.'"
+              (click)="test(p.id)"
+            >
+              Testar
+            </button>
             @if (p.configured && p.source === 'PANEL') {
               <button class="link" [disabled]="aiBusy() === p.id" (click)="removeKey(p.id)">
                 Remover chave
               </button>
             }
+            <small class="muted">{{ p.models.length }} modelo(s) cadastrado(s)</small>
           </div></ciclo-card
         >
       }
     </div>
-    <ciclo-card
-      ><h2>Roteamento por operação</h2>
-      @for (op of operations; track op) {
+
+    <ciclo-card>
+      <h2>Modelos cadastrados</h2>
+      <p class="muted">
+        Só é possível aplicar uma rota para um modelo que exista aqui e esteja liberado na sua conta
+        do provedor.
+      </p>
+      <div class="model-registry">
+        @for (p of providers()?.providers ?? []; track p.id) {
+          <div class="model-group">
+            <b>{{ p.label }}</b>
+            @if (p.models.length) {
+              <ul class="model-list">
+                @for (m of p.models; track m.id) {
+                  <li>
+                    <div>
+                      <strong>{{ m.label }}</strong>
+                      <code>{{ m.id }}</code>
+                      <small class="muted">
+                        ${{ m.inputUsdPerMillion | number: '1.2-4' }} / ${{
+                          m.outputUsdPerMillion | number: '1.2-4'
+                        }}
+                        por 1M tokens
+                      </small>
+                    </div>
+                    <button
+                      class="link"
+                      [disabled]="modelBusy() === m.id"
+                      (click)="removeModel(p.id, m)"
+                    >
+                      Remover
+                    </button>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <small class="muted">Nenhum modelo cadastrado.</small>
+            }
+          </div>
+        }
+      </div>
+
+      <h3>Cadastrar modelo</h3>
+      <form [formGroup]="modelForm" (ngSubmit)="saveModel()">
+        <div class="columns">
+          <label
+            >Provedor
+            <select formControlName="provider">
+              @for (p of providers()?.providers ?? []; track p.id) {
+                <option [value]="p.id">{{ p.label }}</option>
+              }
+            </select>
+          </label>
+          <label>Id do modelo<input formControlName="id" placeholder="gpt-4.1" /></label>
+        </div>
+        <label>Nome exibido<input formControlName="label" placeholder="GPT-4.1" /></label>
+        <div class="columns">
+          <label
+            >Preço de entrada (USD/1M)
+            <input formControlName="inputUsdPerMillion" type="number" min="0" step="0.0001" />
+          </label>
+          <label
+            >Preço de saída (USD/1M)
+            <input formControlName="outputUsdPerMillion" type="number" min="0" step="0.0001" />
+          </label>
+        </div>
+        <div class="operation-picker">
+          <span>Operações suportadas</span>
+          <div class="check-row">
+            <button type="button" class="link" (click)="setAllModelOperations(true)">
+              Marcar todas
+            </button>
+            <button type="button" class="link" (click)="setAllModelOperations(false)">
+              Desmarcar
+            </button>
+          </div>
+          <div class="check-row">
+            @for (op of modelFormOperations(); track op) {
+              <label class="check">
+                <input
+                  type="checkbox"
+                  [checked]="hasModelOperation(op)"
+                  (change)="toggleModelOperation(op)"
+                />
+                {{ operationLabel(op) }}
+              </label>
+            }
+          </div>
+        </div>
+        <button class="button" [disabled]="modelBusy() === 'save'">
+          {{ modelBusy() === 'save' ? 'Salvando…' : 'Cadastrar modelo' }}
+        </button>
+      </form>
+    </ciclo-card>
+
+    <ciclo-card>
+      <h2>Roteamento por operação</h2>
+      @for (op of operations(); track op) {
         <div class="route">
           <div>
             <b>{{ operationLabel(op) }}</b>
             <small>Atual: {{ routeLabel(op) }}</small>
           </div>
-          <select #provider>
+          <select
+            [value]="selectedProvider(op)"
+            (change)="selectProvider(op, $any($event.target).value)"
+          >
             <option value="">Provedor</option>
             @for (p of providers()?.providers ?? []; track p.id) {
-              <option [value]="p.id">
-                {{ p.label }}
-              </option>
+              <option [value]="p.id">{{ p.label }}</option>
             }
           </select>
-          <select #model>
+          <select
+            [value]="selectedModel(op)"
+            [disabled]="!selectedProvider(op)"
+            (change)="selectModel(op, $any($event.target).value)"
+          >
             <option value="">Modelo</option>
-            @for (m of models(provider.value); track m.id) {
-              <option [value]="m.id">
-                {{ m.label }}
-              </option>
+            @for (m of models(selectedProvider(op), op); track m.id) {
+              <option [value]="m.id">{{ m.label }}</option>
             }
           </select>
           <button
             class="button"
-            [disabled]="!provider.value || !model.value"
-            (click)="route(op, provider.value, model.value)"
+            [disabled]="!selectedProvider(op) || !selectedModel(op)"
+            (click)="route(op, selectedProvider(op), selectedModel(op))"
           >
             Aplicar
           </button>
         </div>
+        @if (
+          selectedProvider(op) && !hasModelFor(selectedProvider(op), op) && modelBusy() !== 'save'
+        ) {
+          <small class="muted"
+            >Nenhum modelo de {{ providerLabel(selectedProvider(op)) }} suporta esta operação.
+            Cadastre um acima.</small
+          >
+        }
       }
     </ciclo-card>
   </section>

@@ -15,6 +15,12 @@ public final class AiPorts {
 
     void deleteCredential(Provider p);
 
+    List<Model> models();
+
+    void saveModel(Model model, String actor);
+
+    boolean deleteModel(Provider provider, String modelId);
+
     Map<Operation, Route> routes();
 
     void saveRoute(Route route, String actor);

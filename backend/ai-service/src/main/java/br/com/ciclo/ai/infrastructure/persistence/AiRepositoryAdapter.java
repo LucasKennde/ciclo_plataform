@@ -6,6 +6,7 @@ import br.com.ciclo.ai.domain.AiPolicy;
 import java.sql.*;
 import java.time.*;
 import java.util.*;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -52,6 +53,64 @@ public class AiRepositoryAdapter implements Repository {
 
   public void deleteCredential(Provider p) {
     db.update("DELETE FROM ai_credentials WHERE provider=?", p.name());
+  }
+
+  public List<Model> models() {
+    return db.query(
+        "SELECT * FROM ai_models ORDER BY provider,id",
+        (r, n) ->
+            new Model(
+                Provider.valueOf(r.getString("provider")),
+                r.getString("model"),
+                r.getString("label"),
+                r.getDouble("input_price"),
+                r.getDouble("output_price"),
+                readOperations(r.getString("operations")),
+                at(r, "updated_at"),
+                r.getString("updated_by")));
+  }
+
+  public void saveModel(Model m, String actor) {
+    db.update(
+        "INSERT INTO"
+            + " ai_models(provider,model,label,input_price,output_price,operations,created_at,updated_at,updated_by)VALUES(?,?,?,?,?,?,now(),now(),?)"
+            + " ON CONFLICT(provider,model)DO UPDATE SET"
+            + " label=excluded.label,input_price=excluded.input_price,output_price=excluded.output_price,operations=excluded.operations,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+        m.provider().name(),
+        m.id(),
+        m.label(),
+        m.inputUsdPerMillion(),
+        m.outputUsdPerMillion(),
+        writeOperations(m.operations()),
+        actor);
+  }
+
+  public boolean deleteModel(Provider p, String modelId) {
+    return db.update("DELETE FROM ai_models WHERE provider=? AND model=?", p.name(), modelId) > 0;
+  }
+
+  private static Set<Operation> readOperations(String csv) {
+    if (csv == null || csv.isBlank()) return EnumSet.noneOf(Operation.class);
+    Set<Operation> out = EnumSet.noneOf(Operation.class);
+    for (String raw : csv.split(",")) {
+      String name = raw.trim();
+      if (name.isEmpty()) continue;
+      try {
+        out.add(Operation.valueOf(name));
+      } catch (IllegalArgumentException e) {
+        // Operação desconhecida em uma linha gravada por uma versão anterior: melhor ignorar
+        // do que derrubar a tela inteira de configuração por causa dela.
+        continue;
+      }
+    }
+    return out;
+  }
+
+  private static String writeOperations(Set<Operation> operations) {
+    return operations.stream()
+        .sorted(Comparator.comparingInt(Enum::ordinal))
+        .map(Enum::name)
+        .collect(Collectors.joining(","));
   }
 
   public Map<Operation, Route> routes() {

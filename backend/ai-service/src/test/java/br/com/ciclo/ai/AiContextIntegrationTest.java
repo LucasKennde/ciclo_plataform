@@ -37,6 +37,20 @@ class AiContextIntegrationTest {
     assertThat(tableExists("ai_routes")).isTrue();
   }
 
+  @Test
+  void seedsTheModelRegistrySoTheAdminCanRouteWithoutRegisteringAnythingFirst() {
+    assertThat(tableExists("ai_models")).isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from ai_models where provider=?", Integer.class, "OPENAI"))
+        .isPositive();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from ai_models where operations not like '%SYLLABUS_EXTRACTION%'",
+                Integer.class))
+        .isZero();
+  }
+
   private boolean tableExists(String name) {
     return Boolean.TRUE.equals(
         jdbc.queryForObject(

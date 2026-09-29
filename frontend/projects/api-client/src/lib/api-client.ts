@@ -221,6 +221,8 @@ export interface AiModel {
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
   operations: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
 }
 export interface AiProviderView {
   id: string;
@@ -240,10 +242,23 @@ export interface AiRoute {
   inputPrice: number;
   outputPrice: number;
 }
+export interface AiOperationView {
+  id: string;
+  label: string;
+}
 export interface AiProvidersOverview {
   encryptionAvailable: boolean;
   providers: AiProviderView[];
+  operations: AiOperationView[];
   routing: Record<string, AiRoute>;
+}
+export interface AiModelInput {
+  provider: string;
+  id: string;
+  label: string;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  operations: string[];
 }
 export interface AiTestResult {
   ok: boolean;
@@ -491,6 +506,14 @@ export class ApiClient {
     routes: { operation: string; provider: string; model: string }[],
   ): Observable<AiProvidersOverview> {
     return this.http.put<AiProvidersOverview>('/api/admin/v1/ai/routing', routes);
+  }
+  saveAiModel(model: AiModelInput): Observable<AiProvidersOverview> {
+    return this.http.post<AiProvidersOverview>('/api/admin/v1/ai/models', model);
+  }
+  removeAiModel(provider: string, modelId: string): Observable<AiProvidersOverview> {
+    return this.http.delete<AiProvidersOverview>(
+      `/api/admin/v1/ai/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}`,
+    );
   }
   aiUsage(hours = 24): Observable<AiDashboard> {
     return this.http.get<AiDashboard>('/api/admin/v1/ai/usage', { params: { hours } });
