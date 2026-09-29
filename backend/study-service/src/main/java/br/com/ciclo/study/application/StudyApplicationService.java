@@ -800,8 +800,9 @@ public class StudyApplicationService {
                 .filter(s -> s.id().equals(subjectId))
                 .findFirst()
                 .orElse(null);
-    List<Topic> scope =
-        subject == null ? topics(syllabus.subjects()) : topics(subject.name(), subject.topics());
+    List<Topic> scope = new ArrayList<>();
+    if (subject == null) scope.addAll(topics(syllabus.subjects()));
+    else walk(subject.name(), subject.topics(), scope);
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("jobId", jobId.toString());
     payload.put("workspaceId", workspaceId.toString());
