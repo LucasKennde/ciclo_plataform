@@ -139,10 +139,19 @@ export class SimulationsPage implements OnDestroy {
           // Refaz a montagem: agora as questões foram publicadas e o simulado é criado.
           this.api.startSimulation(competitionId, this.form.getRawValue()).subscribe({
             next: (result) => {
-              this.finishGeneration();
-              if (result.simulation)
+              if (result.simulation) {
+                this.finishGeneration();
                 void this.router.navigate(['/app/simulado', result.simulation.id]);
-              else this.select(this.competition());
+                return;
+              }
+              // Voltou a PENDING: a geração não produziu questões utilizáveis para este filtro.
+              // Antes caía num select() silencioso e o usuário só via a lista vazia, sem nenhuma
+              // pista do que aconteceu.
+              this.finishGeneration();
+              this.select(this.competition());
+              this.error.set(
+                'A IA gerou as questões mas elas não entraram no simulado. Selecione uma disciplina específica ou reduza a quantidade.',
+              );
             },
             error: () => {
               this.finishGeneration();

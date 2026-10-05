@@ -784,12 +784,19 @@ public class StudyApplicationService {
   public StartSimulationResult startSimulation(
       UUID workspaceId, UUID competitionId, String subjectId, int difficulty, int count) {
     getCompetition(workspaceId, competitionId);
+    // O select de disciplina manda string vazia para "Todas as disciplinas". Tratada como id, ela
+    // não casa com nenhuma questão e o simulado nunca é montado: a IA gera, o job termina, e a
+    // segunda chamada volta a pedir geração. Normaliza aqui, num ponto só.
+    String requested = subjectId == null || subjectId.isBlank() ? null : subjectId.trim();
+    // Question.topicId guarda o TÓPICO, mas o filtro recebia a DISCIPLINA. Escolher "Matemática"
+    // também não achava nada, nem as questões que a IA acabou de gerar para ela.
+    Set<String> scope = topicScope(workspaceId, competitionId, requested);
     var available =
         store.questions(workspaceId, competitionId).stream()
             .filter(
                 q ->
                     "PUBLISHED".equals(q.status())
-                        && (subjectId == null || subjectId.equals(q.topicId())))
+                        && (scope == null || scope.contains(q.topicId())))
             .limit(count)
             .toList();
     if (available.size() < count) {
@@ -810,7 +817,7 @@ public class StudyApplicationService {
           "ai.execution.requested",
           jobId,
           generationPayload(
-              workspaceId, competitionId, jobId, subjectId, difficulty, count - available.size()));
+              workspaceId, competitionId, jobId, requested, difficulty, count - available.size()));
       return new StartSimulationResult(null, List.of(), jobId, "PENDING");
     }
     List<SimulationItem> items =
@@ -836,6 +843,37 @@ public class StudyApplicationService {
    * A IA só escreve questão boa se souber sobre o quê. Antes o payload mandava o subjectId cru — um
    * slug sem nome e sem tópicos — então o modelo inventava conteúdo genérico. Aqui vão o nome da
    * disciplina, o cargo, a banca e a lista de tópicos para ela escolher.
+   */
+  /**
+   * Conjunto de topicId que satisfaz o pedido: o próprio id da disciplina mais todos os tópicos
+   * descendentes dela. Sem a expansão, uma questão classificada em "geometria-analitica" nunca
+   * entraria no simulado de "Matemática" — e a IA, que responde com id de tópico e não de
+   * disciplina, produzia exatamente isso.
+   */
+  private Set<String> topicScope(UUID workspaceId, UUID competitionId, String subjectId) {
+    if (subjectId == null) return null;
+    Set<String> scope = new LinkedHashSet<>();
+    scope.add(subjectId);
+    store
+        .syllabus(workspaceId, competitionId)
+        .ifPresent(
+            syllabus ->
+                syllabus.subjects().stream()
+                    .filter(s -> subjectId.equals(s.id()))
+                    .findFirst()
+                    .ifPresent(
+                        subject -> {
+                          List<Topic> collected = new ArrayList<>();
+                          walk(subject.name(), subject.topics(), collected);
+                          for (Topic topic : collected) scope.add(topic.id());
+                        }));
+    return scope;
+  }
+
+  /**
+   * A IA só pode responder com o que conhece. Para uma disciplina ela deve devolver o id da
+   * disciplina no topicId; devolver o id de um tópico faria a questão ser filtrada fora da própria
+   * disciplina que a originou.
    */
   private Map<String, Object> generationPayload(
       UUID workspaceId,

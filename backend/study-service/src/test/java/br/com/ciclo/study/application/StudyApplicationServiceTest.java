@@ -375,6 +375,14 @@ class StudyApplicationServiceTest {
     assertThat(progress.focusedMinutes()).isEqualTo(50);
   }
 
+  /**
+   * startSimulation exige o concurso existir. competition() gera um id próprio, então o stub casa
+   * por qualquer id em vez de tentar adivinhar o do teste.
+   */
+  private void withCompetition(UUID workspaceId) {
+    when(competitions.find(any(), any())).thenReturn(Optional.of(competition(workspaceId)));
+  }
+
   private static Competition competition(UUID workspaceId) {
     return Competition.create(workspaceId, "C", "R", "B", LocalDate.now().plusDays(30));
   }
@@ -401,6 +409,125 @@ class StudyApplicationServiceTest {
               weights[i],
               List.of(new SyllabusTopic("t" + (i + 1), "Tópico " + (i + 1), 1, null, List.of()))));
     return out;
+  }
+
+  @Test
+  void anEmptySubjectIdMeansEverySubjectAndMustNotFilterEverythingOut() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+    // O <select> do front manda string vazia para "Todas as disciplinas". Tratada como id, ela não
+    // casa com nada e o simulado nunca sai.
+    when(store.questions(workspaceId, competitionId))
+        .thenReturn(
+            List.of(
+                question(competitionId, "PUBLISHED", "port"),
+                question(competitionId, "PUBLISHED", "mat")));
+    when(store.saveSimulation(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var result = service.startSimulation(workspaceId, competitionId, "", 3, 2);
+
+    assertThat(result.status()).isEqualTo("READY");
+    assertThat(result.simulation()).isNotNull();
+    assertThat(result.questions()).hasSize(2);
+  }
+
+  @Test
+  void questionsTaggedWithADescendantTopicOfTheChosenSubjectCount() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+    var plan = new SyllabusTopic("plano", "Plano", 1, null, List.of());
+    var geometria = new SyllabusTopic("geometria", "Geometria", 1, null, List.of(plan));
+    var matematica = new SyllabusSubject("mat", "Matemática", 1, List.of(geometria));
+    var syllabus = approvedSyllabus(workspaceId, competitionId, List.of(matematica));
+    when(store.syllabus(workspaceId, competitionId)).thenReturn(Optional.of(syllabus));
+    when(store.questions(workspaceId, competitionId))
+        .thenReturn(List.of(question(competitionId, "PUBLISHED", "plano")));
+    when(store.saveSimulation(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    // topicId é do tópico descendente, não da disciplina. Sem expandir a árvore, não casaria.
+    var result = service.startSimulation(workspaceId, competitionId, "mat", 3, 1);
+
+    assertThat(result.status()).isEqualTo("READY");
+    assertThat(result.simulation()).isNotNull();
+  }
+
+  @Test
+  void theSecondCallAfterGenerationActuallyBuildsTheSimulation() {
+    // Este é o fluxo real do bug: banco vazio -> gera -> o job termina -> o front chama de novo e
+    // precisa receber o simulado. Com o filtro errado, a segunda chamada voltava a pedir geração.
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+    // Cai no ramo de geração, e generationPayload precisa do edital montado.
+    when(store.syllabus(workspaceId, competitionId))
+        .thenReturn(Optional.of(approvedSyllabus(workspaceId, competitionId, subjectsOf(1))));
+    when(store.questions(workspaceId, competitionId)).thenReturn(List.of());
+    when(store.saveJob(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var first = service.startSimulation(workspaceId, competitionId, "", 3, 5);
+
+    assertThat(first.status()).isEqualTo("PENDING");
+    assertThat(first.simulation()).isNull();
+
+    // A IA terminou: as questões agora estão publicadas no banco.
+    when(store.questions(workspaceId, competitionId))
+        .thenReturn(
+            List.of(
+                question(competitionId, "PUBLISHED", "a"),
+                question(competitionId, "PUBLISHED", "b"),
+                question(competitionId, "PUBLISHED", "c"),
+                question(competitionId, "PUBLISHED", "d"),
+                question(competitionId, "PUBLISHED", "e")));
+    when(store.saveSimulation(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var second = service.startSimulation(workspaceId, competitionId, "", 3, 5);
+
+    assertThat(second.status()).isEqualTo("READY");
+    assertThat(second.jobId()).isNull();
+    assertThat(second.simulation()).isNotNull();
+    assertThat(second.simulation().items()).hasSize(5);
+  }
+
+  @Test
+  void draftQuestionsNeverEnterASimulation() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+    when(store.syllabus(workspaceId, competitionId))
+        .thenReturn(Optional.of(approvedSyllabus(workspaceId, competitionId, subjectsOf(1))));
+    when(store.questions(workspaceId, competitionId))
+        .thenReturn(List.of(question(competitionId, "DRAFT", "a")));
+    when(store.saveJob(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var result = service.startSimulation(workspaceId, competitionId, "", 3, 1);
+
+    assertThat(result.status()).isEqualTo("PENDING");
+  }
+
+  private static Question question(UUID competitionId, String status, String topicId) {
+    return new Question(
+        UUID.randomUUID(),
+        UUID.randomUUID(),
+        competitionId,
+        null,
+        topicId,
+        "AI_GENERATED",
+        status,
+        null,
+        3,
+        "Enunciado",
+        List.of("a", "b", "c", "d"),
+        0,
+        "porque",
+        List.of(),
+        Instant.now(),
+        Instant.now());
   }
 
   private static Syllabus approvedSyllabus(
