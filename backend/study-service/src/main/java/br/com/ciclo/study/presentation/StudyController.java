@@ -122,6 +122,12 @@ public class StudyController {
     return study.startSession(workspace(jwt), id, sessionId);
   }
 
+  @PostMapping("/competitions/{id}/study-plan/sessions/{sessionId}/pause")
+  Plan pause(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable UUID sessionId) {
+    return study.pauseSession(workspace(jwt), id, sessionId);
+  }
+
   @PostMapping("/competitions/{id}/study-plan/sessions/{sessionId}/complete")
   Plan complete(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable UUID sessionId) {

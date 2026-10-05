@@ -114,9 +114,11 @@ export interface PlannedSession {
   date: string;
   minutes: number;
   kind: 'study' | 'review' | 'questions';
-  status: 'planned' | 'completed' | 'missed';
-  /** Âncora do pomodoro no servidor; null enquanto a sessão não começou. */
+  status: 'planned' | 'in_progress' | 'paused' | 'completed' | 'missed';
+  /** Âncora do pomodoro no servidor; null enquanto a sessão não está em curso. */
   startedAt: string | null;
+  /** Segundos já investidos antes da última pausa. */
+  accumulatedSeconds: number | null;
 }
 export interface StudyPlan {
   id: string;
@@ -371,6 +373,12 @@ export class ApiClient {
   startSession(competitionId: string, sessionId: string): Observable<StudyPlan> {
     return this.http.post<StudyPlan>(
       `/api/v1/competitions/${competitionId}/study-plan/sessions/${sessionId}/start`,
+      {},
+    );
+  }
+  pauseSession(competitionId: string, sessionId: string): Observable<StudyPlan> {
+    return this.http.post<StudyPlan>(
+      `/api/v1/competitions/${competitionId}/study-plan/sessions/${sessionId}/pause`,
       {},
     );
   }

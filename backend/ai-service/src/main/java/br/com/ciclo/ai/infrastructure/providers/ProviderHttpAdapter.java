@@ -83,8 +83,13 @@ public class ProviderHttpAdapter implements ProviderGateway {
 
       Reply retry = call(p, key, model, operation, inputNode, true);
       JsonNode repaired = output.parse(operation, retry.text());
+      // Soma as duas chamadas: o reparo é uma chamada completa e custa o mesmo. Antes só o retry
+      // era contabilizado e o custo real da extração ficava subnotado na tela de consumo.
       if (repaired != null)
-        return new Result(toMap(repaired), retry.inputTokens(), retry.outputTokens());
+        return new Result(
+            toMap(repaired),
+            first.inputTokens() + retry.inputTokens(),
+            first.outputTokens() + retry.outputTokens());
 
       throw new IllegalStateException(
           "A IA não devolveu um resultado utilizável após uma tentativa de reparo. Resposta"

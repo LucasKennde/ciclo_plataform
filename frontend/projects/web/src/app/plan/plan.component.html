@@ -55,9 +55,11 @@
       <article class="rounded-2xl border border-line bg-white p-5">
         <p class="text-xs font-bold text-muted">Sessões</p>
         <b class="mt-1 block text-3xl"
-          >{{ completed()
-          }}<small class="text-sm text-muted"> / {{ currentPlan.sessions.length }}</small></b
+          >{{ completed() }}<small class="text-sm text-muted"> / {{ scheduled() }}</small></b
         >
+        @if (missed() > 0) {
+          <p class="mt-1 text-xs text-danger">{{ missed() }} não feitas</p>
+        }
       </article>
       <article class="rounded-2xl border border-line bg-white p-5">
         <p class="text-xs font-bold text-muted">Carga planejada</p>
@@ -126,6 +128,9 @@
           <p class="mt-3 text-xs text-muted">
             @if (subject.scheduled) {
               {{ subject.done }} de {{ subject.total }} sessões concluídas
+              @if (subject.missed > 0) {
+                <span class="text-danger">· {{ subject.missed }} não feitas</span>
+              }
             } @else {
               Nenhuma sessão coube até a prova. Ajuste sua rotina para incluir esta disciplina.
             }
@@ -153,10 +158,18 @@
                     [class]="
                       session.status === 'completed'
                         ? 'bg-success/10 text-success'
-                        : 'bg-primary-soft text-primary'
+                        : session.status === 'missed'
+                          ? 'bg-danger/10 text-danger'
+                          : 'bg-primary-soft text-primary'
                     "
                     ><lucide-icon
-                      [img]="session.status === 'completed' ? icons.Check : icons.BookOpenCheck"
+                      [img]="
+                        session.status === 'completed'
+                          ? icons.Check
+                          : session.status === 'in_progress'
+                            ? icons.Clock3
+                            : icons.BookOpenCheck
+                      "
                       [size]="19" /></span
                   ><span class="min-w-0 flex-1"
                     ><b class="block truncate text-sm">{{ session.topicName }}</b
@@ -169,9 +182,21 @@
                     [class]="
                       session.status === 'completed'
                         ? 'bg-success/10 text-success'
-                        : 'bg-primary-soft text-primary'
+                        : session.status === 'missed'
+                          ? 'bg-danger/10 text-danger'
+                          : 'bg-primary-soft text-primary'
                     "
-                    >{{ session.status === 'completed' ? 'Concluída' : 'Planejada' }}</span
+                    >{{
+                      session.status === 'completed'
+                        ? 'Concluída'
+                        : session.status === 'missed'
+                          ? 'Não feita'
+                          : session.status === 'in_progress'
+                            ? 'Em andamento'
+                            : session.status === 'paused'
+                              ? 'Pausada'
+                              : 'Planejada'
+                    }}</span
                   >
                 </button>
               }
@@ -259,7 +284,7 @@
     <div class="p-7 pt-6">
       <!-- O anel e o relógio só existem depois que a sessão começa, porque é o startedAt gravado
            no servidor que dá a âncora do tempo. -->
-      @if (session.startedAt) {
+      @if (hasStarted()) {
         <div class="flex flex-col items-center py-2">
           <div
             class="relative grid h-44 w-44 place-items-center rounded-full"
@@ -284,7 +309,7 @@
             } @else if (running()) {
               Sessão em andamento
             } @else {
-              Pausada
+              Pausada · retome quando quiser
             }
           </p>
         </div>
@@ -298,7 +323,7 @@
 
       <div class="mt-6 grid gap-3">
         @if (session.status !== 'completed') {
-          @if (!session.startedAt) {
+          @if (!hasStarted()) {
             <button
               type="button"
               [disabled]="busy()"
@@ -312,8 +337,9 @@
             <div class="grid grid-cols-2 gap-3">
               <button
                 type="button"
+                [disabled]="busy()"
                 (click)="togglePause()"
-                class="rounded-xl border border-line px-5 py-3 font-extrabold"
+                class="rounded-xl border border-line px-5 py-3 font-extrabold disabled:opacity-50"
               >
                 {{ running() ? 'Pausar' : 'Continuar' }}
               </button>

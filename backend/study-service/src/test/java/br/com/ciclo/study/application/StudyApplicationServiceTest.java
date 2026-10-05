@@ -196,7 +196,7 @@ class StudyApplicationServiceTest {
     var competitionId = UUID.randomUUID();
     var session =
         new StudySession(
-            UUID.randomUUID(), "t1", "S", "T1", LocalDate.now(), 50, "study", "planned", null);
+            UUID.randomUUID(), "t1", "S", "T1", LocalDate.now(), 50, "study", "planned", null, 0);
     when(store.plan(workspaceId, competitionId))
         .thenReturn(
             Optional.of(
@@ -224,7 +224,16 @@ class StudyApplicationServiceTest {
     var started = Instant.now().minusSeconds(600);
     var session =
         new StudySession(
-            UUID.randomUUID(), "t1", "S", "T1", LocalDate.now(), 50, "study", "planned", started);
+            UUID.randomUUID(),
+            "t1",
+            "S",
+            "T1",
+            LocalDate.now(),
+            50,
+            "study",
+            "planned",
+            started,
+            0);
     when(store.plan(workspaceId, competitionId))
         .thenReturn(
             Optional.of(
@@ -242,6 +251,144 @@ class StudyApplicationServiceTest {
     var plan = service.startSession(workspaceId, competitionId, session.id());
 
     assertThat(plan.sessions().get(0).startedAt()).isEqualTo(started);
+  }
+
+  @Test
+  void pausingBanksTheElapsedTimeSoItSurvivesAReload() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var id = UUID.randomUUID();
+    var running =
+        new StudySession(
+            id, "t1", "S", "T1", LocalDate.now(), 50, "study", "in_progress", Instant.now(), 0);
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(Optional.of(planWith(workspaceId, competitionId, running)));
+    when(store.savePlan(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var plan = service.pauseSession(workspaceId, competitionId, id);
+
+    var session = plan.sessions().get(0);
+    assertThat(session.status()).isEqualTo("paused");
+    // Pausar tem que zerar o startedAt: se ele sobreviver, o relógio volta a correr do zero quando
+    // a página recarrega e a pausa vira mentira.
+    assertThat(session.startedAt()).isNull();
+    assertThat(session.investedSeconds(Instant.now())).isGreaterThanOrEqualTo(0);
+  }
+
+  @Test
+  void resumingAPausedSessionKeepsTheBankedTime() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var id = UUID.randomUUID();
+    var paused =
+        new StudySession(id, "t1", "S", "T1", LocalDate.now(), 50, "study", "paused", null, 900);
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(Optional.of(planWith(workspaceId, competitionId, paused)));
+    when(store.savePlan(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var plan = service.startSession(workspaceId, competitionId, id);
+
+    var session = plan.sessions().get(0);
+    assertThat(session.status()).isEqualTo("in_progress");
+    // 15 min de work anterior não podem ser devolvidos ao retomar.
+    assertThat(session.accumulatedSeconds()).isEqualTo(900);
+    assertThat(session.remainingSeconds(Instant.now())).isLessThan(50L * 60);
+  }
+
+  @Test
+  void sessionsFromPastDatesBecomeMissedSoTheyStopInflatingProgress() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var yesterday = LocalDate.now().minusDays(1);
+    var stale =
+        new StudySession(
+            UUID.randomUUID(), "t1", "S", "T1", yesterday, 50, "study", "planned", null, 0);
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(Optional.of(planWith(workspaceId, competitionId, stale)));
+
+    var plan = service.getPlan(workspaceId, competitionId);
+
+    assertThat(plan.sessions().get(0).status()).isEqualTo("missed");
+  }
+
+  @Test
+  void aRunningSessionThatCrossedMidnightIsNotMarkedMissed() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var yesterday = LocalDate.now().minusDays(1);
+    var running =
+        new StudySession(
+            UUID.randomUUID(),
+            "t1",
+            "S",
+            "T1",
+            yesterday,
+            50,
+            "study",
+            "in_progress",
+            Instant.now(),
+            0);
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(Optional.of(planWith(workspaceId, competitionId, running)));
+
+    var plan = service.getPlan(workspaceId, competitionId);
+
+    // O usuário abriu a sessão antes da meia-noite; matar isso é errar a favor do sistema.
+    assertThat(plan.sessions().get(0).status()).isEqualTo("in_progress");
+  }
+
+  @Test
+  void progressCountsOnlyScheduledSessionsAndReportsTheMissedOnes() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var yesterday = LocalDate.now().minusDays(1);
+    var done =
+        new StudySession(
+            UUID.randomUUID(),
+            "t1",
+            "S",
+            "T1",
+            LocalDate.now(),
+            50,
+            "study",
+            "completed",
+            null,
+            3000);
+    var stale =
+        new StudySession(
+            UUID.randomUUID(), "t2", "S", "T2", yesterday, 50, "study", "planned", null, 0);
+    // competition.id() e não um id solto: o store é consultado pelo id que o create gerou.
+    var competition = competition(workspaceId);
+    var competitionId = competition.id();
+    when(competitions.list(workspaceId)).thenReturn(List.of(competition));
+    when(store.plan(workspaceId, competitionId))
+        .thenReturn(Optional.of(planWith(workspaceId, competitionId, done, stale)));
+
+    var progress = service.progress(workspaceId);
+
+    assertThat(progress.completedSessions()).isEqualTo(1);
+    assertThat(progress.missedSessions()).isEqualTo(1);
+    assertThat(progress.focusedMinutes()).isEqualTo(50);
+  }
+
+  private static Competition competition(UUID workspaceId) {
+    return Competition.create(workspaceId, "C", "R", "B", LocalDate.now().plusDays(30));
+  }
+
+  private static Plan planWith(UUID workspaceId, UUID competitionId, StudySession... sessions) {
+    return new Plan(
+        UUID.randomUUID(),
+        workspaceId,
+        competitionId,
+        1,
+        List.of(),
+        List.of(sessions),
+        Instant.now(),
+        Instant.now());
   }
 
   private static List<SyllabusSubject> subjectsOf(double... weights) {
@@ -386,7 +533,8 @@ class StudyApplicationServiceTest {
             50,
             "study",
             "completed",
-            null);
+            null,
+            3000);
     var plan =
         new Plan(
             UUID.randomUUID(),

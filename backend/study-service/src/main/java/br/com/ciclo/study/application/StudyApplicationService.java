@@ -5,6 +5,7 @@ import br.com.ciclo.study.domain.Competition;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.function.UnaryOperator;
 
 public class StudyApplicationService {
   /** Abaixo disso não é sessão de estudo; 50 min é o teto de atenção que o plano assume. */
@@ -468,7 +469,8 @@ public class StudyApplicationService {
                   date,
                   size,
                   sessions.size() % 4 == 3 ? "review" : "study",
-                  "planned",
+                  StudySession.PLANNED,
+                  null,
                   null));
           remaining -= size;
         }
@@ -516,7 +518,8 @@ public class StudyApplicationService {
               day,
               MIN_SESSION_MINUTES,
               "study",
-              "planned",
+              StudySession.PLANNED,
+              null,
               null));
     }
   }
@@ -650,24 +653,65 @@ public class StudyApplicationService {
         processingJob);
   }
 
+  /**
+   * Lê o plano reconciliando o que já passou. Uma sessão de ontem que continua "planned" inflava o
+   * progresso para sempre e nunca era cobrada nem esquecida; agora ela aparece como "missed" sem
+   * precisar de job noturno nem de migração — a reconciliação é derivada do campo date.
+   */
   public Plan getPlan(UUID workspaceId, UUID competitionId) {
-    return store.plan(workspaceId, competitionId).orElseThrow(NotFound::new);
+    return reconcile(
+        store.plan(workspaceId, competitionId).orElseThrow(NotFound::new), Instant.now());
+  }
+
+  private Plan reconcile(Plan plan, Instant now) {
+    var today = LocalDate.now();
+    List<StudySession> sessions = new ArrayList<>(plan.sessions().size());
+    boolean changed = false;
+    for (StudySession session : plan.sessions()) {
+      boolean open =
+          StudySession.PLANNED.equals(session.status())
+              || StudySession.PAUSED.equals(session.status());
+      // Correndo não vira missed: o usuário pode ter aberto antes da meia-noite e a sessão ainda
+      // está valendo.
+      if (open && session.date().isBefore(today)) {
+        sessions.add(session.miss());
+        changed = true;
+      } else {
+        sessions.add(session);
+      }
+    }
+    if (!changed) return plan;
+    return new Plan(
+        plan.id(),
+        plan.workspaceId(),
+        plan.competitionId(),
+        plan.version(),
+        plan.availability(),
+        List.copyOf(sessions),
+        plan.createdAt(),
+        plan.updatedAt());
   }
 
   /**
-   * Grava o início da sessão para o pomodoro ter âncora no servidor. Sem isso o cronômetro vive só
-   * na memória do navegador e zera a cada F5.
+   * Vence a sessão aberta de uma data que já passou. Correndo não vence: o usuário pode ter aberto
+   * antes da meia-noite e a sessão ainda está valendo.
    */
-  public Plan startSession(UUID workspaceId, UUID competitionId, UUID sessionId) {
-    var plan = getPlan(workspaceId, competitionId);
-    var started = Instant.now();
+  private static StudySession expire(StudySession session, LocalDate today) {
+    if (session.running() || !session.date().isBefore(today)) return session;
+    boolean open =
+        StudySession.PLANNED.equals(session.status())
+            || StudySession.PAUSED.equals(session.status());
+    return open ? session.miss() : session;
+  }
+
+  private Plan mutateSession(
+      UUID workspaceId, UUID competitionId, UUID sessionId, UnaryOperator<StudySession> change) {
+    var plan = store.plan(workspaceId, competitionId).orElseThrow(NotFound::new);
     List<StudySession> sessions = new ArrayList<>(plan.sessions());
     boolean found = false;
     for (int i = 0; i < sessions.size(); i++) {
-      StudySession session = sessions.get(i);
-      if (!sessionId.equals(session.id())) continue;
-      // Reentrar em sessão pausada não reseta o tempo já investido.
-      sessions.set(i, session.startedAt() == null ? session.start(started) : session);
+      if (!sessionId.equals(sessions.get(i).id())) continue;
+      sessions.set(i, change.apply(sessions.get(i)));
       found = true;
     }
     if (!found) throw new NotFound();
@@ -683,27 +727,36 @@ public class StudyApplicationService {
             Instant.now()));
   }
 
+  /**
+   * Grava o início da sessão para o pomodoro ter âncora no servidor. Sem isso o cronômetro vive só
+   * na memória do navegador e zera a cada F5.
+   */
+  public Plan startSession(UUID workspaceId, UUID competitionId, UUID sessionId) {
+    var started = Instant.now();
+    return mutateSession(
+        workspaceId,
+        competitionId,
+        sessionId,
+        session -> {
+          // Já em curso não reinicia; pausada retoma preservando o tempo investido.
+          if (session.running()) return session;
+          return session.start(started);
+        });
+  }
+
+  /**
+   * Pausa de verdade: o tempo da execução atual é somado ao acumulado e o startedAt é zerado. Sem
+   * isso a pausa era só cosmetics — parava o setInterval, mas ao recarregar a página o tempo
+   * continuava correndo a partir do startedAt antigo.
+   */
+  public Plan pauseSession(UUID workspaceId, UUID competitionId, UUID sessionId) {
+    var now = Instant.now();
+    return mutateSession(workspaceId, competitionId, sessionId, session -> session.pause(now));
+  }
+
   public Plan completeSession(UUID workspaceId, UUID competitionId, UUID sessionId) {
-    var plan = getPlan(workspaceId, competitionId);
-    List<StudySession> sessions = new ArrayList<>(plan.sessions());
-    boolean found = false;
-    for (int i = 0; i < sessions.size(); i++) {
-      if (sessionId.equals(sessions.get(i).id())) {
-        sessions.set(i, sessions.get(i).complete());
-        found = true;
-      }
-    }
-    if (!found) throw new NotFound();
-    return store.savePlan(
-        new Plan(
-            plan.id(),
-            workspaceId,
-            competitionId,
-            plan.version(),
-            plan.availability(),
-            List.copyOf(sessions),
-            plan.createdAt(),
-            Instant.now()));
+    var now = Instant.now();
+    return mutateSession(workspaceId, competitionId, sessionId, session -> session.complete(now));
   }
 
   public Flashcard createFlashcard(
@@ -898,14 +951,27 @@ public class StudyApplicationService {
             .filter(java.util.Objects::nonNull)
             .toList();
     var sims = store.simulations(workspaceId, null);
+    var now = Instant.now();
+    var today = LocalDate.now();
+    // Mesma reconciliação do getPlan: sem isso a sessão vencida contaria como pendente para sempre
+    // e o progresso jamais fecharia.
+    var sessions =
+        allPlans.stream().flatMap(p -> p.sessions().stream()).map(s -> expire(s, today)).toList();
     int completed =
-        allPlans.stream()
-            .mapToInt(
-                p -> {
-                  int n = 0;
-                  for (StudySession s : p.sessions()) if ("completed".equals(s.status())) n++;
-                  return n;
-                })
+        (int) sessions.stream().filter(s -> StudySession.COMPLETED.equals(s.status())).count();
+    // Sessão vencida vira "missed" na leitura do plano. Ela não conta como concluída nem entra em
+    // nenhum denominador, senão o progresso nunca chega a 100% e o usuário não descobre o que
+    // falta.
+    int missed = (int) sessions.stream().filter(StudySession::missed).count();
+    // Tempo de foco de verdade: acumulado das sessões fechadas + corrida das que estão em aberto.
+    long focusedSeconds =
+        sessions.stream()
+            .filter(
+                s ->
+                    StudySession.COMPLETED.equals(s.status())
+                        || s.running()
+                        || StudySession.PAUSED.equals(s.status()))
+            .mapToLong(s -> s.investedSeconds(now))
             .sum();
     int answered = 0, correct = 0;
     Set<LocalDate> active = new HashSet<>();
@@ -930,7 +996,9 @@ public class StudyApplicationService {
         streak,
         completed,
         answered,
-        answered == 0 ? 0 : (double) correct / answered);
+        answered == 0 ? 0 : (double) correct / answered,
+        missed,
+        focusedSeconds / 60);
   }
 
   public void applyAiResult(

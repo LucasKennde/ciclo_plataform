@@ -43,13 +43,17 @@ export class PlanPage {
   protected readonly completed = computed(
     () => this.plan()?.sessions.filter((item) => item.status === 'completed').length ?? 0,
   );
+  protected readonly scheduled = computed(
+    () => this.plan()?.sessions.filter((item) => item.status !== 'missed').length ?? 0,
+  );
+  protected readonly missed = computed(
+    () => this.plan()?.sessions.filter((item) => item.status === 'missed').length ?? 0,
+  );
   protected readonly totalMinutes = computed(
     () => this.plan()?.sessions.reduce((sum, item) => sum + item.minutes, 0) ?? 0,
   );
   protected readonly progress = computed(() =>
-    this.plan()?.sessions.length
-      ? Math.round((this.completed() / this.plan()!.sessions.length) * 100)
-      : 0,
+    this.scheduled() ? Math.round((this.completed() / this.scheduled()) * 100) : 0,
   );
   protected readonly examDays = computed(() => daysUntil(this.competition()?.examDate ?? null));
   protected readonly subjects = computed(() => {
@@ -84,13 +88,21 @@ export class PlanPage {
   protected readonly subjectRows = computed(() => {
     const rows = new Map<
       string,
-      { name: string; total: number; done: number; minutes: number; scheduled: boolean }
+      {
+        name: string;
+        total: number;
+        done: number;
+        missed: number;
+        minutes: number;
+        scheduled: boolean;
+      }
     >();
     for (const subject of this.syllabus()?.subjects ?? [])
       rows.set(subject.name, {
         name: subject.name,
         total: 0,
         done: 0,
+        missed: 0,
         minutes: 0,
         scheduled: false,
       });
@@ -99,12 +111,18 @@ export class PlanPage {
         name: session.subjectName,
         total: 0,
         done: 0,
+        missed: 0,
         minutes: 0,
         scheduled: false,
       };
-      row.total++;
-      row.minutes += session.minutes;
+      // Sessão não feita não conta como pendente: entrar no total faria o progresso nunca chegar
+      // a 100% sem o usuário saber o que falta.
+      if (session.status !== 'missed') {
+        row.total++;
+        row.minutes += session.minutes;
+      }
       if (session.status === 'completed') row.done++;
+      if (session.status === 'missed') row.missed++;
       row.scheduled = true;
       rows.set(session.subjectName, row);
     }
@@ -132,7 +150,7 @@ export class PlanPage {
 
   // --- pomodoro -------------------------------------------------------------------------------
 
-  /** Milissegundos restantes; null quando a sessão não começou. */
+  /** Milissegundos restantes; null quando não há nada em aberto. */
   protected readonly remainingMs = signal<number | null>(null);
   protected readonly running = signal(false);
   private tick?: ReturnType<typeof setInterval>;
@@ -191,16 +209,38 @@ export class PlanPage {
   }
 
   protected togglePause() {
+    const session = this.selectedSession();
+    const competition = this.competition();
+    if (!session || !competition || this.busy()) return;
     if (this.running()) {
-      this.running.set(false);
-      this.stopTicking();
-    } else {
-      this.running.set(true);
-      // O relógio desconta do startedAt do servidor, então retomar não dá tempo de volta.
-      this.now.set(Date.now());
-      this.syncRemaining();
-      this.startTicking();
+      // Pausar tem que ir para o servidor: se ficasse só no setInterval, ao recarregar a página o
+      // relógio voltaria a contar do startedAt antigo e a pausa seria mentira.
+      this.busy.set(true);
+      this.api.pauseSession(competition.id, session.id).subscribe({
+        next: (plan) => {
+          this.applyPlan(plan, session.id);
+          this.running.set(false);
+          this.stopTicking();
+          this.now.set(Date.now());
+          this.syncRemaining();
+          this.busy.set(false);
+        },
+        error: () => this.busy.set(false),
+      });
+      return;
     }
+    this.busy.set(true);
+    this.api.startSession(competition.id, session.id).subscribe({
+      next: (plan) => {
+        this.applyPlan(plan, session.id);
+        this.running.set(true);
+        this.now.set(Date.now());
+        this.syncRemaining();
+        this.startTicking();
+        this.busy.set(false);
+      },
+      error: () => this.busy.set(false),
+    });
   }
 
   private startTicking() {
@@ -220,11 +260,19 @@ export class PlanPage {
   private syncRemaining() {
     const session = this.selectedSession();
     if (!session?.startedAt) {
-      this.remainingMs.set(null);
+      // Sem execução em curso: só o que já foi acumulado. É o que faz a pausa sobreviver ao F5.
+      // Precisa sair em milissegundos como o ramo de baixo — misturar segundos aqui fazia o
+      // anel de progresso e o relógio saltarem.
+      this.remainingMs.set(
+        session
+          ? Math.max(0, session.minutes * 60_000 - (session.accumulatedSeconds ?? 0) * 1000)
+          : null,
+      );
       return;
     }
+    const accumulated = (session.accumulatedSeconds ?? 0) * 1000;
     const elapsed = this.now() - new Date(session.startedAt).getTime();
-    this.remainingMs.set(Math.max(0, session.minutes * 60_000 - elapsed));
+    this.remainingMs.set(Math.max(0, session.minutes * 60_000 - accumulated - elapsed));
   }
 
   protected elapsedLabel(): string {
@@ -242,9 +290,20 @@ export class PlanPage {
   protected focusProgress(): number {
     const total = this.minutesOfSession() * 60_000;
     const remaining = this.remainingMs();
-    if (total <= 0) return 0;
-    if (remaining === null) return 0;
+    if (total <= 0 || remaining === null) return 0;
     return Math.min(1, Math.max(0, 1 - remaining / total));
+  }
+
+  /** A sessão está com o relógio parado mas com tempo já investido. */
+  protected isPaused(): boolean {
+    const session = this.selectedSession();
+    return !!session && session.status === 'paused' && !session.startedAt;
+  }
+
+  /** Já começou, esteja correndo ou pausada. */
+  protected hasStarted(): boolean {
+    const session = this.selectedSession();
+    return !!session && (!!session.startedAt || session.status === 'paused');
   }
 
   private minutesOfSession(): number {

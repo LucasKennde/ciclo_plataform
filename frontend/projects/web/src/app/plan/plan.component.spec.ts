@@ -27,6 +27,7 @@ function session(over: Partial<PlannedSession> = {}): PlannedSession {
     kind: 'study',
     status: 'planned',
     startedAt: null,
+    accumulatedSeconds: 0,
     ...over,
   };
 }
@@ -60,6 +61,7 @@ describe('PlanPage', () => {
     syllabus: vi.fn(),
     generatePlan: vi.fn(),
     startSession: vi.fn(),
+    pauseSession: vi.fn(),
     completeSession: vi.fn(),
   };
 
@@ -137,13 +139,22 @@ describe('PlanPage', () => {
     api.startSession.mockReturnValue(
       of({ ...plan, sessions: [session({ startedAt: '2026-09-30T10:00:00Z' })] }),
     );
+    api.pauseSession.mockReturnValue(
+      of({
+        ...plan,
+        sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 420 })],
+      }),
+    );
     page.start();
-    const before = page.remainingMs();
+    page['now'].set(new Date('2026-09-30T10:07:00Z').getTime());
+    page['syncRemaining']();
 
     page.togglePause();
 
+    // O servidor banka os 7 min que decorreram: 420s acumulados, 50 - 7 = 43 min restantes.
+    // Pausar não devolve tempo, e o valor sobrevive ao F5 porque veio do servidor.
     expect(page.running()).toBe(false);
-    expect(page.remainingMs()).toBe(before);
+    expect(page.remainingMs()).toBe(43 * 60 * 1000);
     page.closeSession();
   });
 
@@ -200,5 +211,87 @@ describe('PlanPage', () => {
       '2026-09-30',
       '2026-10-05',
     ]);
+  });
+
+  // Pausar precisa ir para o servidor. Se ficasse só no setInterval, o startedAt antigo continuaria
+  // valendo e ao recarregar a página o relógio voltaria a correr: a pausa seria mentira.
+  it('pausa no servidor e preserva o tempo investido', () => {
+    const page = build({ competition: competition.id, session: 'session-1' });
+    api.pauseSession.mockReturnValue(
+      of({
+        ...plan,
+        sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 600 })],
+      }),
+    );
+
+    page.start();
+    page.togglePause();
+
+    expect(api.pauseSession).toHaveBeenCalledWith(competition.id, 'session-1');
+    expect(page.running()).toBe(false);
+    expect(page.selectedSession().status).toBe('paused');
+    expect(page.selectedSession().startedAt).toBeNull();
+    // 10 min de 50 investidos.
+    expect(page.remainingMs()).toBe(40 * 60 * 1000);
+    page.closeSession();
+  });
+
+  it('ao recarregar uma sessão pausada, mostra o que restou e não zera', () => {
+    const paused = {
+      ...plan,
+      sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 1200 })],
+    };
+    const page = build({ competition: competition.id, session: 'session-1' }, paused);
+    page['now'].set(Date.now());
+    page['syncRemaining']();
+
+    // 20 min investidos de 50. Antes, sem accumulatedSeconds, isso voltava a 50:00.
+    expect(page.remainingMs()).toBe(30 * 60 * 1000);
+    expect(page.hasStarted()).toBe(true);
+    expect(page.isPaused()).toBe(true);
+    page.closeSession();
+  });
+
+  it('retomar uma sessão pausada não devolve o tempo investido', () => {
+    const paused = {
+      ...plan,
+      sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 900 })],
+    };
+    const page = build({ competition: competition.id, session: 'session-1' }, paused);
+    const startedAt = new Date().toISOString();
+    api.startSession.mockReturnValue(
+      of({
+        ...plan,
+        sessions: [session({ status: 'in_progress', startedAt, accumulatedSeconds: 900 })],
+      }),
+    );
+
+    page.togglePause();
+
+    expect(api.startSession).toHaveBeenCalledWith(competition.id, 'session-1');
+    expect(page.running()).toBe(true);
+    expect(page.remainingMs()).toBeLessThan(50 * 60 * 1000);
+    page.closeSession();
+  });
+
+  it('conta sessões perdidas fora do total e no contador separado', () => {
+    const withMissed = {
+      ...plan,
+      sessions: [
+        session({ id: 'a', status: 'completed' }),
+        session({ id: 'b', status: 'missed', subjectName: 'Língua Portuguesa' }),
+        session({ id: 'c', status: 'planned' }),
+      ],
+    };
+    const page = build({ competition: competition.id }, withMissed, twoSubjects);
+
+    // 1 de 2 agendadas: a perdida não pode entrar no denominador.
+    expect(page.progress()).toBe(50);
+    expect(page.missed()).toBe(1);
+    expect(page.scheduled()).toBe(2);
+    const row = (page.subjectRows() as { name: string; missed: number }[]).find(
+      (r) => r.name === 'Língua Portuguesa',
+    );
+    expect(row?.missed).toBe(1);
   });
 });

@@ -204,9 +204,20 @@ public final class StudyPorts {
   public record Availability(int weekday, int minutes) {}
 
   /**
-   * Sessão planejada. {@code startedAt} é o que permite ao pomodoro sobreviver a recarregar a
-   * página ou trocar de aba: o cliente desconta a partir dele em vez de manter um cronômetro só na
-   * memória. {@code sessions} é jsonb, então planos antigos simplesmente leem null aqui.
+   * Sessão planejada e o pomodoro dela.
+   *
+   * <p>A invariante é sempre a mesma e vale para todos os estados:
+   *
+   * <pre>
+   *   investido = accumulatedSeconds + (startedAt == null ? 0 : now - startedAt)
+   *   restante  = minutes * 60 - investido
+   * </pre>
+   *
+   * <p>{@code startedAt} é a âncora no servidor: é por causa dela que o cronômetro sobrevive a
+   * recarregar a página, trocar de aba e o usuário sair para estudar no celular. {@code
+   * accumulatedSeconds} guarda o que foi investido antes da última pausa — sem ele, pausar seria só
+   * cosmetics e o tempo voltaria ao recarregar. {@code sessions} é jsonb, então planos antigos leem
+   * {@code null}/{@code 0} aqui e caem em "planned" sem nenhuma migração.
    */
   public record StudySession(
       UUID id,
@@ -217,15 +228,104 @@ public final class StudyPorts {
       int minutes,
       String kind,
       String status,
-      Instant startedAt) {
-    public StudySession start(Instant when) {
-      return new StudySession(
-          id, topicId, subjectName, topicName, date, minutes, kind, status, when);
+      Instant startedAt,
+      Integer accumulatedSeconds) {
+
+    public static final String PLANNED = "planned";
+    public static final String IN_PROGRESS = "in_progress";
+    public static final String PAUSED = "paused";
+    public static final String COMPLETED = "completed";
+    public static final String MISSED = "missed";
+
+    public StudySession {
+      accumulatedSeconds = accumulatedSeconds == null ? 0 : Math.max(0, accumulatedSeconds);
     }
 
-    public StudySession complete() {
+    /** Segundos já investidos, incluindo a execução em curso. */
+    public long investedSeconds(Instant now) {
+      long running =
+          startedAt == null ? 0 : Math.max(0, now.getEpochSecond() - startedAt.getEpochSecond());
+      return accumulatedSeconds + running;
+    }
+
+    public long remainingSeconds(Instant now) {
+      return Math.max(0, (long) minutes * 60 - investedSeconds(now));
+    }
+
+    /**
+     * Relógio em curso. Não exige o status in_progress porque os planos gravados antes deste modelo
+     * carregam "planned" com startedAt preenchido — e esses precisam continuar contando.
+     */
+    public boolean running() {
+      return startedAt != null && !COMPLETED.equals(status) && !MISSED.equals(status);
+    }
+
+    public StudySession start(Instant when) {
+      // Retomar uma sessão pausada não devolve tempo: accumulatedSeconds fica.
       return new StudySession(
-          id, topicId, subjectName, topicName, date, minutes, kind, "completed", startedAt);
+          id,
+          topicId,
+          subjectName,
+          topicName,
+          date,
+          minutes,
+          kind,
+          IN_PROGRESS,
+          when,
+          accumulatedSeconds);
+    }
+
+    public StudySession pause(Instant now) {
+      if (startedAt == null) return this;
+      return new StudySession(
+          id,
+          topicId,
+          subjectName,
+          topicName,
+          date,
+          minutes,
+          kind,
+          PAUSED,
+          null,
+          (int)
+              Math.min(
+                  Integer.MAX_VALUE,
+                  accumulatedSeconds
+                      + Math.max(0, now.getEpochSecond() - startedAt.getEpochSecond())));
+    }
+
+    /** Concluir encerra o cronômetro: o investido vira o que foi de fato estudado. */
+    public StudySession complete(Instant now) {
+      long invested = investedSeconds(now);
+      return new StudySession(
+          id,
+          topicId,
+          subjectName,
+          topicName,
+          date,
+          minutes,
+          kind,
+          COMPLETED,
+          null,
+          (int) Math.min(Integer.MAX_VALUE, invested));
+    }
+
+    public boolean missed() {
+      return MISSED.equals(status);
+    }
+
+    public StudySession miss() {
+      return new StudySession(
+          id,
+          topicId,
+          subjectName,
+          topicName,
+          date,
+          minutes,
+          kind,
+          MISSED,
+          null,
+          accumulatedSeconds);
     }
   }
 
@@ -273,5 +373,7 @@ public final class StudyPorts {
       int streak,
       int completedSessions,
       int totalAnswered,
-      double averageAccuracy) {}
+      double averageAccuracy,
+      int missedSessions,
+      long focusedMinutes) {}
 }
