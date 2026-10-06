@@ -1,5 +1,6 @@
 package br.com.ciclo.study.presentation;
 
+import br.com.ciclo.study.application.ProgramaCatalog;
 import br.com.ciclo.study.application.StudyApplicationService;
 import br.com.ciclo.study.application.StudyApplicationService.*;
 import br.com.ciclo.study.application.StudyPorts.*;
@@ -105,6 +106,22 @@ public class StudyController {
     return study.approveSyllabus(workspace(jwt), id);
   }
 
+  /** Programas do catálogo oficial, com a procedência do texto, para o usuário escolher o cargo. */
+  @GetMapping("/programs")
+  Programs programs() {
+    return new Programs(study.programs(), study.programSource());
+  }
+
+  /**
+   * Aplica o conteúdo programático do catálogo ao concurso. É o caminho sem IA: o edital entra
+   * mesmo sem credencial configurada, e com o mesmo texto do Anexo III.
+   */
+  @PostMapping("/competitions/{id}/syllabus/program/{slug}")
+  Syllabus applyProgram(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable String slug) {
+    return study.applyProgram(workspace(jwt), id, slug);
+  }
+
   @PostMapping("/competitions/{id}/study-plan")
   Plan plan(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @Valid @RequestBody GeneratePlan r) {
@@ -167,6 +184,21 @@ public class StudyController {
             r.count() == null ? 10 : r.count());
     return ResponseEntity.status(result.jobId() == null ? HttpStatus.CREATED : HttpStatus.ACCEPTED)
         .body(result);
+  }
+
+  /**
+   * Diagnóstico sem efeito colateral: o formulário mostra quantas questões já existem no banco e
+   * quantas a IA teria de criar antes de o usuário gastar um clique (e tokens).
+   */
+  @GetMapping("/competitions/{id}/simulations/availability")
+  SimulationAvailability availability(
+      @AuthenticationPrincipal Jwt jwt,
+      @PathVariable UUID id,
+      @RequestParam(required = false) String subjectId,
+      @RequestParam(defaultValue = "3") int difficulty,
+      @RequestParam(defaultValue = "10") int count) {
+    return study.simulationAvailability(
+        workspace(jwt), id, subjectId, difficulty, Math.min(60, Math.max(1, count)));
   }
 
   @GetMapping("/simulations")
@@ -285,12 +317,14 @@ public class StudyController {
 
   record Subjects(@NotNull List<SyllabusSubject> subjects) {}
 
+  record Programs(List<ProgramaCatalog.ProgramaView> programs, ProgramaCatalog.Fonte source) {}
+
   record GeneratePlan(@Future LocalDate examDate, @NotEmpty List<Availability> availability) {}
 
   record CreateFlashcard(UUID competitionId, @NotBlank String front, @NotBlank String back) {}
 
   record StartSimulation(
-      String subjectId, @Min(1) @Max(5) Integer difficulty, @Min(1) @Max(20) Integer count) {}
+      String subjectId, @Min(1) @Max(5) Integer difficulty, @Min(1) @Max(60) Integer count) {}
 
   record Answer(@NotNull UUID questionId, @Min(0) int selectedIndex) {}
 

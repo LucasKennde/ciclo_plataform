@@ -9,6 +9,7 @@ import br.com.ciclo.study.application.StudyPorts.*;
 import br.com.ciclo.study.domain.Competition;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
 class StudyApplicationServiceTest {
@@ -510,6 +512,89 @@ class StudyApplicationServiceTest {
     assertThat(result.status()).isEqualTo("PENDING");
   }
 
+  @Test
+  void aSecondSimulationDoesNotRepeatTheQuestionsOfTheFirst() {
+    // Bug reportado: com limit(count) sobre a lista na ordem do banco, o simulado 2 recebia
+    // exatamente as mesmas questões do 1 — nada marcava uma questão como já usada.
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+
+    var bank = new ArrayList<Question>();
+    for (int i = 1; i <= 6; i++) bank.add(question(competitionId, "PUBLISHED", "t" + i));
+    when(store.questions(workspaceId, competitionId)).thenReturn(bank);
+    when(store.saveSimulation(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+    var first = service.startSimulation(workspaceId, competitionId, "", 3, 3);
+    assertThat(first.status()).isEqualTo("READY");
+    var firstIds = first.simulation().items().stream().map(SimulationItem::questionId).toList();
+
+    // A segunda chamada enxerga o primeiro simulado.
+    when(store.simulations(workspaceId, competitionId)).thenReturn(List.of(first.simulation()));
+
+    var second = service.startSimulation(workspaceId, competitionId, "", 3, 3);
+    var secondIds = second.simulation().items().stream().map(SimulationItem::questionId).toList();
+
+    assertThat(secondIds).doesNotContainAnyElementsOf(firstIds);
+  }
+
+  @Test
+  void questionsAlreadyUsedAreOnlyReusedWhenThereAreNotEnoughUnused() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+    // Pede 6 com 4 no banco: cai no ramo de geração e generationPayload lê o edital.
+    when(store.syllabus(workspaceId, competitionId))
+        .thenReturn(Optional.of(approvedSyllabus(workspaceId, competitionId, subjectsOf(1))));
+
+    var bank = new ArrayList<Question>();
+    for (int i = 1; i <= 4; i++) bank.add(question(competitionId, "PUBLISHED", "t" + i));
+    when(store.questions(workspaceId, competitionId)).thenReturn(bank);
+
+    // As 4 do banco já foram usadas num simulado anterior.
+    var previous =
+        new Simulation(
+            UUID.randomUUID(),
+            workspaceId,
+            competitionId,
+            null,
+            "FINISHED",
+            bank.stream()
+                .map(q -> new SimulationItem(q.id(), q.topicId(), 0, 1, Instant.now()))
+                .toList(),
+            10,
+            Instant.now(),
+            Instant.now());
+    when(store.simulations(workspaceId, competitionId)).thenReturn(List.of(previous));
+
+    // Pedindo mais do que existe: tem que reaproveitar, senão o simulado nunca fecha.
+    var result = service.startSimulation(workspaceId, competitionId, "", 3, 6);
+
+    assertThat(result.status()).isEqualTo("PENDING");
+    assertThat(result.bankAvailable()).isEqualTo(4);
+    assertThat(result.toGenerate()).isEqualTo(2);
+  }
+
+  @Test
+  void availabilityReportsHowManyTheAiWouldHaveToCreateBeforeTheUserClicks() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    withCompetition(workspaceId);
+    // subjectId vazio => escopo nulo => o syllabus nem e consultado.
+    when(store.questions(workspaceId, competitionId))
+        .thenReturn(List.of(question(competitionId, "PUBLISHED", "a")));
+
+    var availability = service.simulationAvailability(workspaceId, competitionId, "", 3, 10);
+
+    assertThat(availability.publishedInScope()).isEqualTo(1);
+    assertThat(availability.toGenerate()).isEqualTo(9);
+    // Diagnóstico puro: não pode criar job nem gravar nada.
+    assertThat(availability.usableForRequest()).isEqualTo(1);
+  }
+
   private static Question question(UUID competitionId, String status, String topicId) {
     return new Question(
         UUID.randomUUID(),
@@ -543,6 +628,136 @@ class StudyApplicationServiceTest {
         Instant.now(),
         Instant.now(),
         Instant.now());
+  }
+
+  // --- catálogo oficial de programas ------------------------------------------------------------
+  // O objetivo do catálogo é o edital existir sem credencial de IA. Estes testes usam o arquivo
+  // real
+  // do classpath de propósito: um catálogo que passa no mock e está vazio no deploy não serve.
+
+  @Test
+  void catalogCarriesEveryProgramOfTheOfficialAnnex() {
+    var programs = catalog().programas();
+
+    // Anexo III do Edital 014/2026 (Seduc/CE): 14 cargos de professor.
+    assertThat(programs)
+        .extracting(ProgramaCatalog.ProgramaView::slug)
+        .contains(
+            "professor-matematica",
+            "professor-biologia",
+            "professor-fisica",
+            "professor-quimica",
+            "professor-geografia",
+            "professor-historia",
+            "professor-sociologia",
+            "professor-filosofia",
+            "professor-lingua-portuguesa",
+            "professor-lingua-inglesa",
+            "professor-lingua-espanhola",
+            "professor-educacao-fisica",
+            "professor-arte-educacao",
+            "professor-aee");
+    assertThat(programs).allSatisfy(p -> assertThat(p.subtopicos()).isPositive());
+  }
+
+  @Test
+  void programCarriesBasicsPlusTheRoleAndTheRealWeighting() {
+    var subjects = catalog().subjectsFor("professor-matematica");
+
+    // 4 basics (P1) + 1 específica (P2).
+    assertThat(subjects).hasSize(5);
+    assertThat(subjects)
+        .extracting(SyllabusSubject::name)
+        .containsExactly(
+            "Administração Pública",
+            "Educação Brasileira",
+            "Leitura e Interpretação de Dados e Indicadores Educacionais",
+            "Língua Portuguesa",
+            "Professor de Matemática");
+    // Item 1.7.1 do edital: P1 são 30 questões em 4 matérias, P2 são 50 no cargo.
+    assertThat(subjects.get(0).weight()).isEqualTo(7.5);
+    assertThat(subjects.get(4).weight()).isEqualTo(50.0);
+  }
+
+  @Test
+  void everyTopicIdIsUniqueInsideItsProgram() {
+    for (var programa : catalog().programas()) {
+      var ids = new java.util.ArrayList<String>();
+      collectSubjectIds(catalog().subjectsFor(programa.slug()), ids);
+      assertThat(ids).as(programa.slug()).doesNotHaveDuplicates();
+    }
+  }
+
+  private static void collectSubjectIds(List<SyllabusSubject> subjects, List<String> out) {
+    for (var s : subjects) collectTopicIds(s.topics(), out);
+  }
+
+  private static void collectTopicIds(List<SyllabusTopic> topics, List<String> out) {
+    for (var t : topics) {
+      out.add(t.id());
+      collectTopicIds(t.children(), out);
+    }
+  }
+
+  @Test
+  void rejectsAProgramThatIsNotInTheCatalog() {
+    assertThatThrownBy(() -> catalog().subjectsFor("professor-de-astronomia"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("professor-matematica");
+  }
+
+  @Test
+  void onlySuggestsAProgramWhenTheRoleMatchesExactly() {
+    assertThat(catalog().suggestForRole("Professor de Matemática"))
+        .isEqualTo("professor-matematica");
+    // Cargo genérico não pode virar chute: edital errado é pior do que pedir para escolher.
+    assertThat(catalog().suggestForRole("Professor")).isNull();
+    assertThat(catalog().suggestForRole("AnalistaJudicial")).isNull();
+    assertThat(catalog().suggestForRole(null)).isNull();
+  }
+
+  @Test
+  void appliesTheProgramAsDraftWithoutAnyDocument() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competition =
+        Competition.create(
+            workspaceId,
+            "Seduc 2026",
+            "Professor de Matemática",
+            "Cebraspe",
+            LocalDate.now().plusDays(120));
+    when(competitions.find(workspaceId, competition.id())).thenReturn(Optional.of(competition));
+    when(store.syllabus(workspaceId, competition.id())).thenReturn(Optional.empty());
+    when(store.saveSyllabus(any())).thenAnswer(i -> i.getArgument(0));
+
+    var syllabus = service.applyProgram(workspaceId, competition.id(), "professor-matematica");
+
+    // Sem PDF: documentId nulo. É o que exigiu o V4.
+    assertThat(syllabus.documentId()).isNull();
+    assertThat(syllabus.version()).isOne();
+    assertThat(syllabus.status()).isEqualTo("DRAFT");
+    assertThat(syllabus.subjects()).hasSize(5);
+    // Evidência é citação literal do anexo, não saída de modelo: confiança cheia.
+    assertThat(syllabus.subjects().get(4).topics().get(0).evidence().confidence()).isEqualTo(1.0);
+    // O concurso vai para revisão, igual ao fluxo de upload.
+    assertThat(competition.status()).isEqualTo(Competition.Status.REVIEW);
+  }
+
+  @Test
+  void refusesToOverwriteAnApprovedSyllabus() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competition =
+        Competition.create(workspaceId, "Seduc", "Professor de Matemática", "Cebraspe", null);
+    when(competitions.find(workspaceId, competition.id())).thenReturn(Optional.of(competition));
+    when(store.syllabus(workspaceId, competition.id()))
+        .thenReturn(Optional.of(approvedSyllabus(workspaceId, competition.id(), List.of())));
+
+    assertThatThrownBy(
+            () -> service.applyProgram(workspaceId, competition.id(), "professor-matematica"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("aprovada");
   }
 
   @Test
@@ -756,6 +971,12 @@ class StudyApplicationServiceTest {
   }
 
   private StudyApplicationService service() {
-    return new StudyApplicationService(competitions, store, onboardings, objects, events);
+    return new StudyApplicationService(
+        competitions, store, onboardings, objects, events, catalog());
+  }
+
+  /** Catálogo real do classpath: os testes de plano dependem de conteúdo de verdade. */
+  private static ProgramaCatalog catalog() {
+    return new ProgramaCatalog(JsonMapper.builder().build(), "programas/seduc-2026.json");
   }
 }

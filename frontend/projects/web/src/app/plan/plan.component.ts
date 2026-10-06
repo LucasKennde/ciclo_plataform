@@ -1,10 +1,10 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { catchError, of } from 'rxjs';
 import { LucideAngularModule } from 'lucide-angular';
-import { DialogComponent } from 'ui';
+import { FocusService } from '../shared/focus.service';
 import { ApiClient, Competition, PlannedSession, StudyPlan, Syllabus } from 'api-client';
 import { icons } from '../shared/icons';
 import { daysUntil } from '../shared/view-models';
@@ -16,13 +16,14 @@ function clock(ms: number): string {
 
 @Component({
   standalone: true,
-  imports: [DatePipe, ReactiveFormsModule, LucideAngularModule, DialogComponent],
+  imports: [DatePipe, ReactiveFormsModule, LucideAngularModule],
   templateUrl: './plan.component.html',
 })
 export class PlanPage {
   private readonly api = inject(ApiClient);
   private readonly fb = inject(FormBuilder);
   private readonly route = inject(ActivatedRoute);
+  protected readonly focus = inject(FocusService);
   protected readonly icons = icons;
   protected readonly competitions = signal<Competition[]>([]);
   protected readonly competition = signal<Competition | null>(null);
@@ -148,184 +149,55 @@ export class PlanPage {
     return { total, scheduled: scheduled.size, missing: Math.max(0, total - scheduled.size) };
   });
 
-  // --- pomodoro -------------------------------------------------------------------------------
+  // --- pomodoro --------------------------------------------------------------------------------
+  // A lógica vive no FocusService (root-scoped) para sobreviver à navegação; aqui só abrimos a
+  // sessão e reagimos quando ela for concluída.
 
-  /** Milissegundos restantes; null quando não há nada em aberto. */
-  protected readonly remainingMs = signal<number | null>(null);
-  protected readonly running = signal(false);
-  private tick?: ReturnType<typeof setInterval>;
-  private readonly now = signal(Date.now());
-
-  constructor() {
-    this.api.competitions().subscribe((items) => {
-      this.competitions.set(items);
-      const requested = this.route.snapshot.queryParamMap.get('competition');
-      // "Começar sessão" na home navega com ?session=<id>. Esse parâmetro nunca era lido: o
-      // usuário clicava em começar e chegava no planner sem nada aberto.
-      const requestedSession = this.route.snapshot.queryParamMap.get('session');
-      this.select(
-        items.find((item) => item.id === requested) ?? items[0] ?? null,
-        requestedSession,
-      );
-    });
-    inject(DestroyRef).onDestroy(() => this.stopTicking());
+  protected selectSession(session: PlannedSession): void {
+    const competition = this.competition();
+    if (competition) this.focus.open(competition.id, session);
   }
 
-  /** Abre a sessão vinda da home, se ela existir no plano. */
-  private openRequested(plan: StudyPlan | null, sessionId: string | null) {
+  /**
+   * "Começar sessão" na home navega para /app/plano?session=<id>. Esse parâmetro nunca era lido:
+   * o usuário clicava em começar e o planner abria sem nada.
+   */
+  private openRequestedSession(plan: StudyPlan | null, sessionId: string | null): void {
     if (!plan || !sessionId) return;
     const session = plan.sessions.find((item) => item.id === sessionId);
     if (session) this.selectSession(session);
   }
 
-  protected selectSession(session: PlannedSession) {
-    this.selectedSession.set(session);
-    this.syncRemaining();
-  }
-
-  protected closeSession() {
-    this.stopTicking();
-    this.running.set(false);
-    this.selectedSession.set(null);
-  }
-
-  protected start() {
-    const competition = this.competition();
-    const session = this.selectedSession();
-    if (!competition || !session || this.busy()) return;
-    this.busy.set(true);
-    this.api.startSession(competition.id, session.id).subscribe({
-      next: (plan) => {
-        this.applyPlan(plan, session.id);
-        this.running.set(true);
-        // Desenha o relógio já no primeiro quadro; esperar o tick deixava 1s de anel vazio.
-        this.now.set(Date.now());
-        this.syncRemaining();
-        this.startTicking();
-        this.busy.set(false);
-      },
-      error: () => this.busy.set(false),
-    });
-  }
-
-  protected togglePause() {
-    const session = this.selectedSession();
-    const competition = this.competition();
-    if (!session || !competition || this.busy()) return;
-    if (this.running()) {
-      // Pausar tem que ir para o servidor: se ficasse só no setInterval, ao recarregar a página o
-      // relógio voltaria a contar do startedAt antigo e a pausa seria mentira.
-      this.busy.set(true);
-      this.api.pauseSession(competition.id, session.id).subscribe({
-        next: (plan) => {
-          this.applyPlan(plan, session.id);
-          this.running.set(false);
-          this.stopTicking();
-          this.now.set(Date.now());
-          this.syncRemaining();
-          this.busy.set(false);
-        },
-        error: () => this.busy.set(false),
-      });
-      return;
-    }
-    this.busy.set(true);
-    this.api.startSession(competition.id, session.id).subscribe({
-      next: (plan) => {
-        this.applyPlan(plan, session.id);
-        this.running.set(true);
-        this.now.set(Date.now());
-        this.syncRemaining();
-        this.startTicking();
-        this.busy.set(false);
-      },
-      error: () => this.busy.set(false),
-    });
-  }
-
-  private startTicking() {
-    this.stopTicking();
-    this.tick = setInterval(() => {
-      this.now.set(Date.now());
-      this.syncRemaining();
-    }, 1000);
-  }
-
-  private stopTicking() {
-    if (this.tick) clearInterval(this.tick);
-    this.tick = undefined;
-  }
-
-  /** Reconta a partir de startedAt, não de um contador em memória: sobrevive a F5 e a troca de aba. */
-  private syncRemaining() {
-    const session = this.selectedSession();
-    if (!session?.startedAt) {
-      // Sem execução em curso: só o que já foi acumulado. É o que faz a pausa sobreviver ao F5.
-      // Precisa sair em milissegundos como o ramo de baixo — misturar segundos aqui fazia o
-      // anel de progresso e o relógio saltarem.
-      this.remainingMs.set(
-        session
-          ? Math.max(0, session.minutes * 60_000 - (session.accumulatedSeconds ?? 0) * 1000)
-          : null,
-      );
-      return;
-    }
-    const accumulated = (session.accumulatedSeconds ?? 0) * 1000;
-    const elapsed = this.now() - new Date(session.startedAt).getTime();
-    this.remainingMs.set(Math.max(0, session.minutes * 60_000 - accumulated - elapsed));
-  }
-
-  protected elapsedLabel(): string {
-    const remaining = this.remainingMs();
-    if (remaining === null) return clock(this.minutesOfSession() * 60_000);
-    return clock(remaining);
-  }
-
-  protected finishedFocus(): boolean {
-    const remaining = this.remainingMs();
-    return remaining !== null && remaining <= 0;
-  }
-
-  /** Fração 0..1 para o anel de progresso. */
-  protected focusProgress(): number {
-    const total = this.minutesOfSession() * 60_000;
-    const remaining = this.remainingMs();
-    if (total <= 0 || remaining === null) return 0;
-    return Math.min(1, Math.max(0, 1 - remaining / total));
-  }
-
-  /** A sessão está com o relógio parado mas com tempo já investido. */
-  protected isPaused(): boolean {
-    const session = this.selectedSession();
-    return !!session && session.status === 'paused' && !session.startedAt;
-  }
-
-  /** Já começou, esteja correndo ou pausada. */
-  protected hasStarted(): boolean {
-    const session = this.selectedSession();
-    return !!session && (!!session.startedAt || session.status === 'paused');
-  }
-
-  private minutesOfSession(): number {
-    return this.selectedSession()?.minutes ?? 0;
+  protected closeSession(): void {
+    this.focus.close();
   }
 
   protected kindLabel(kind: string): string {
     return kind === 'review' ? 'Revisão' : kind === 'questions' ? 'Questões' : 'Estudo';
   }
 
-  protected applyPlan(plan: StudyPlan | null, keepSessionId?: string) {
-    this.plan.set(plan);
-    if (!keepSessionId) return;
-    const refreshed = plan?.sessions.find((item) => item.id === keepSessionId);
-    if (refreshed) this.selectedSession.set(refreshed);
+  constructor() {
+    // Concluir pelo dock global atualiza a linha do tempo sem o dock conhecer o planner.
+    effect(() => {
+      const latest = this.focus.lastPlan();
+      if (latest && latest.competitionId === this.competition()?.id) this.plan.set(latest);
+    });
+    this.api.competitions().subscribe((items) => {
+      this.competitions.set(items);
+      const requested = this.route.snapshot.queryParamMap.get('competition');
+      const requestedSession = this.route.snapshot.queryParamMap.get('session');
+      this.select(
+        items.find((item) => item.id === requested) ?? items[0] ?? null,
+        requestedSession,
+      );
+    });
   }
 
   protected select(competition: Competition | null, sessionId: string | null = null): void {
     this.competition.set(competition);
     this.plan.set(null);
     this.syllabus.set(null);
-    this.closeSession();
+    this.focus.close();
     if (!competition) return;
     this.form.patchValue({ examDate: competition.examDate ?? '' });
     this.api
@@ -333,7 +205,7 @@ export class PlanPage {
       .pipe(catchError(() => of(null)))
       .subscribe((value) => {
         this.plan.set(value);
-        this.openRequested(value, sessionId);
+        this.openRequestedSession(value, sessionId);
       });
     this.api
       .syllabus(competition.id)
@@ -363,8 +235,8 @@ export class PlanPage {
     this.busy.set(true);
     this.api.completeSession(competition.id, session.id).subscribe({
       next: (plan) => {
-        this.applyPlan(plan);
-        this.closeSession();
+        this.plan.set(plan);
+        this.focus.close();
         this.busy.set(false);
       },
       error: () => this.busy.set(false),

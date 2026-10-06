@@ -1,0 +1,44 @@
+{
+  "name": "Ciclo — Concursos",
+  "short_name": "Ciclo",
+  "description": "Sua rota de estudos a partir do edital.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f7f5",
+  "theme_color": "#164c3f",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Meu plano",
+      "url": "/app/plano"
+    },
+    {
+      "name": "Simulados",
+      "url": "/app/simulados"
+    }
+  ]
+}

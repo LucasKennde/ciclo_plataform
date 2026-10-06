@@ -172,6 +172,50 @@
                   (change)="upload($event)"
                 />
               </label>
+
+              @if (programs().length) {
+                <div class="mt-4 rounded-2xl border border-line p-5 text-left">
+                  <div class="flex items-start gap-3">
+                    <lucide-icon
+                      [img]="icons.BookOpenCheck"
+                      [size]="18"
+                      class="mt-0.5 text-primary"
+                    />
+                    <div>
+                      <b class="block text-sm">Já temos este edital pronto</b>
+                      <p class="mt-1 text-xs leading-5 text-muted">
+                        Conteúdo do {{ programSource()?.anexo }} — sem PDF e sem depender de leitura
+                        por IA, então sai igual em qualquer máquina.
+                      </p>
+                    </div>
+                  </div>
+                  <label class="mt-4 block text-xs font-bold text-muted" for="program"
+                    >Seu cargo</label
+                  >
+                  <select
+                    id="program"
+                    class="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm"
+                    (change)="chosenProgram.set($any($event.target).value)"
+                    [disabled]="busy()"
+                  >
+                    <option value="" disabled>Selecione o cargo</option>
+                    @for (program of programs(); track program.slug) {
+                      <option [value]="program.slug">
+                        {{ program.name }} — {{ program.topicos + program.subtopicos }} tópicos
+                      </option>
+                    }
+                  </select>
+                  <p class="mt-2 text-xs text-muted">{{ programSource()?.edital }}</p>
+                  <button
+                    type="button"
+                    (click)="applyProgram()"
+                    [disabled]="busy() || !chosenProgram()"
+                    class="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-50"
+                  >
+                    Usar este edital
+                  </button>
+                </div>
+              }
             }
           </div>
         }

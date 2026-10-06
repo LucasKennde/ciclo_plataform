@@ -25,14 +25,25 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 public class StudyConfiguration {
+  /**
+   * Conteúdo programático oficial, transcrito do edital. Vive no repositório para que o edital não
+   * dependa de credencial de IA nem da variação de um modelo entre execuções.
+   */
+  @Bean
+  ProgramaCatalog programaCatalog(
+      JsonMapper json, @Value("${app.programas.catalog:programas/seduc-2026.json}") String path) {
+    return new ProgramaCatalog(json, path);
+  }
+
   @Bean
   StudyApplicationService studyApplicationService(
       Competitions competitions,
       Store store,
       Onboardings onboardings,
       StudyPorts.Objects objects,
-      Events events) {
-    return new StudyApplicationService(competitions, store, onboardings, objects, events);
+      Events events,
+      ProgramaCatalog catalog) {
+    return new StudyApplicationService(competitions, store, onboardings, objects, events, catalog);
   }
 
   @Bean

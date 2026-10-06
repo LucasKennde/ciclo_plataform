@@ -5,6 +5,7 @@ import br.com.ciclo.study.domain.Competition;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.UnaryOperator;
 
 public class StudyApplicationService {
@@ -18,18 +19,21 @@ public class StudyApplicationService {
   private final Onboardings onboardings;
   private final StudyPorts.Objects objects;
   private final Events events;
+  private final ProgramaCatalog catalog;
 
   public StudyApplicationService(
       Competitions competitions,
       Store store,
       Onboardings onboardings,
       StudyPorts.Objects objects,
-      Events events) {
+      Events events,
+      ProgramaCatalog catalog) {
     this.competitions = competitions;
     this.store = store;
     this.onboardings = onboardings;
     this.objects = objects;
     this.events = events;
+    this.catalog = catalog;
   }
 
   public Competition createCompetition(
@@ -388,6 +392,47 @@ public class StudyApplicationService {
 
   public Syllabus syllabus(UUID workspaceId, UUID competitionId) {
     return store.syllabus(workspaceId, competitionId).orElseThrow(NotFound::new);
+  }
+
+  /**
+   * Aplica o conteúdo programático do catálogo oficial ao concurso, como rascunho para revisão.
+   *
+   * <p>É o caminho que não depende de IA: sem credencial o edital continua entrando, e o resultado
+   * é o mesmo texto do Anexo III em qualquer máquina. Fica em DRAFT de propósito — o usuário
+   * confere antes de aprovar, igual ao fluxo de extração.
+   */
+  public Syllabus applyProgram(UUID workspaceId, UUID competitionId, String slug) {
+    var competition = getCompetition(workspaceId, competitionId);
+    var existing = store.syllabus(workspaceId, competitionId);
+    if (existing.isPresent() && "APPROVED".equals(existing.get().status()))
+      throw new IllegalStateException("Uma versão aprovada é imutável.");
+    var now = Instant.now();
+    var draft =
+        store.saveSyllabus(
+            new Syllabus(
+                existing.map(Syllabus::id).orElseGet(UUID::randomUUID),
+                workspaceId,
+                competitionId,
+                existing.map(Syllabus::documentId).orElse(null),
+                existing.map(s -> s.version() + 1).orElse(1),
+                "DRAFT",
+                catalog.subjectsFor(slug),
+                null,
+                existing.map(Syllabus::createdAt).orElse(now),
+                now));
+    // Mesmo ciclo do upload: o edital sai de DRAFT para revisão, porque passou por "processamento".
+    competition.processing();
+    competition.review();
+    competitions.save(competition);
+    return draft;
+  }
+
+  public ProgramaCatalog.Fonte programSource() {
+    return catalog.fonte();
+  }
+
+  public List<ProgramaCatalog.ProgramaView> programs() {
+    return catalog.programas();
   }
 
   public Syllabus reviseSyllabus(
@@ -791,15 +836,9 @@ public class StudyApplicationService {
     // Question.topicId guarda o TÓPICO, mas o filtro recebia a DISCIPLINA. Escolher "Matemática"
     // também não achava nada, nem as questões que a IA acabou de gerar para ela.
     Set<String> scope = topicScope(workspaceId, competitionId, requested);
-    var available =
-        store.questions(workspaceId, competitionId).stream()
-            .filter(
-                q ->
-                    "PUBLISHED".equals(q.status())
-                        && (scope == null || scope.contains(q.topicId())))
-            .limit(count)
-            .toList();
-    if (available.size() < count) {
+    List<Question> selected = pickQuestions(workspaceId, competitionId, scope, difficulty, count);
+    if (selected.size() < count) {
+      int missing = count - selected.size();
       UUID jobId = UUID.randomUUID();
       store.saveJob(
           new Job(
@@ -816,12 +855,16 @@ public class StudyApplicationService {
       events.publish(
           "ai.execution.requested",
           jobId,
-          generationPayload(
-              workspaceId, competitionId, jobId, requested, difficulty, count - available.size()));
-      return new StartSimulationResult(null, List.of(), jobId, "PENDING");
+          generationPayload(workspaceId, competitionId, jobId, requested, difficulty, missing));
+      return new StartSimulationResult(null, List.of(), jobId, "PENDING", selected.size(), missing);
     }
+    // Ordem estável por definição de prova: embaralha, senão o simulado 2 viria na mesma ordem do
+    // 1.
+    // ArrayList porque pickQuestions devolve lista imutável e shuffle precisa trocar posições.
+    List<Question> shuffled = new ArrayList<>(selected);
+    Collections.shuffle(shuffled, new Random(ThreadLocalRandom.current().nextLong()));
     List<SimulationItem> items =
-        available.stream()
+        shuffled.stream()
             .map(q -> new SimulationItem(q.id(), q.topicId(), q.correctIndex(), null, null))
             .toList();
     var sim =
@@ -836,7 +879,54 @@ public class StudyApplicationService {
             Instant.now(),
             null);
     var saved = store.saveSimulation(sim);
-    return new StartSimulationResult(saved, available, null, "READY");
+    return new StartSimulationResult(saved, selected, null, "READY", selected.size(), 0);
+  }
+
+  /**
+   * Escolhe as questões do banco priorizando o que ainda não foi usado, depois o que está mais
+   * perto da dificuldade pedida.
+   *
+   * <p>Antes era só {@code limit(count)} sobre a lista na ordem do banco: o segundo simulado
+   * recebia exatamente as mesmas questões do primeiro, porque nada marcava uma questão como já
+   * usada.
+   */
+  private List<Question> pickQuestions(
+      UUID workspaceId, UUID competitionId, Set<String> scope, int difficulty, int count) {
+    Set<UUID> alreadyUsed =
+        store.simulations(workspaceId, competitionId).stream()
+            .flatMap(s -> s.items().stream())
+            .map(SimulationItem::questionId)
+            .collect(java.util.stream.Collectors.toSet());
+    return store.questions(workspaceId, competitionId).stream()
+        .filter(
+            q -> "PUBLISHED".equals(q.status()) && (scope == null || scope.contains(q.topicId())))
+        // Nunca usada primeiro; entre as nunca usadas, a mais próxima da dificuldade pedida.
+        .sorted(
+            Comparator.comparing((Question q) -> alreadyUsed.contains(q.id()))
+                .thenComparingInt(q -> Math.abs(q.difficulty() - difficulty))
+                .thenComparing(Question::id))
+        .limit(count)
+        .toList();
+  }
+
+  /**
+   * Diagnóstico sem efeito colateral, para o formulário dizer ANTES de o usuário clicar quantas
+   * questões já existem no banco e quantas a IA teria de criar.
+   */
+  public SimulationAvailability simulationAvailability(
+      UUID workspaceId, UUID competitionId, String subjectId, int difficulty, int count) {
+    getCompetition(workspaceId, competitionId);
+    String requested = subjectId == null || subjectId.isBlank() ? null : subjectId.trim();
+    Set<String> scope = topicScope(workspaceId, competitionId, requested);
+    List<Question> pool =
+        store.questions(workspaceId, competitionId).stream()
+            .filter(
+                q ->
+                    "PUBLISHED".equals(q.status())
+                        && (scope == null || scope.contains(q.topicId())))
+            .toList();
+    int matching = (int) pickQuestions(workspaceId, competitionId, scope, difficulty, count).size();
+    return new SimulationAvailability(pool.size(), matching, Math.max(0, count - matching));
   }
 
   /**
@@ -1229,7 +1319,16 @@ public class StudyApplicationService {
   public record UploadResult(UUID documentId, UUID jobId, String statusUrl) {}
 
   public record StartSimulationResult(
-      Simulation simulation, List<Question> questions, UUID jobId, String status) {}
+      Simulation simulation,
+      List<Question> questions,
+      UUID jobId,
+      String status,
+      int bankAvailable,
+      int toGenerate) {}
+
+  /** O que o banco já tem para o pedido, antes de gastar IA. */
+  public record SimulationAvailability(
+      int publishedInScope, int usableForRequest, int toGenerate) {}
 
   public static class NotFound extends RuntimeException {
     public NotFound() {

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ApiClient, Competition, PlannedSession, StudyPlan, Syllabus } from 'api-client';
+import { FocusService } from '../shared/focus.service';
 import { PlanPage } from './plan.component';
 
 const competition: Competition = {
@@ -91,53 +92,54 @@ describe('PlanPage', () => {
   beforeEach(() => vi.clearAllMocks());
 
   // "Começar sessão" na home navega com ?session=<id>. Esse parâmetro nunca era lido: o usuário
-  // clicava em começar e o planner abria sem o pomodoro.
+  // clicava em começar e o planner abria sem nada.
   it('abre a sessão vinda da query param da home', () => {
     const page = build({ competition: competition.id, session: 'session-1' });
 
-    expect(page.selectedSession()?.id).toBe('session-1');
+    expect(page.focus.session()?.id).toBe('session-1');
   });
 
   it('ignora a query param quando a sessão não existe no plano', () => {
     const page = build({ competition: competition.id, session: 'inexistente' });
 
-    expect(page.selectedSession()).toBeNull();
+    expect(page.focus.session()).toBeNull();
   });
 
-  it('grava o início no servidor e passa a contar o tempo', () => {
+  it('grava o início no servidor e passa a contar o tempo', async () => {
     const page = build({ competition: competition.id, session: 'session-1' });
     const startedAt = new Date().toISOString();
-    api.startSession.mockReturnValue(of({ ...plan, sessions: [session({ startedAt })] }));
+    api.startSession.mockReturnValue(
+      of({ ...plan, sessions: [session({ status: 'in_progress', startedAt })] }),
+    );
 
-    page.start();
+    await page.focus.start();
 
     expect(api.startSession).toHaveBeenCalledWith(competition.id, 'session-1');
-    expect(page.running()).toBe(true);
-    expect(page.selectedSession().startedAt).toBe(startedAt);
-    // 50 min recém-iniciados: quase tudo ainda restante.
-    expect(page.remainingMs()).toBeGreaterThan(49 * 60_000);
-    expect(page.finishedFocus()).toBe(false);
-    page.closeSession();
+    expect(page.focus.running()).toBe(true);
+    expect(page.focus.remainingMs()).toBeGreaterThan(49 * 60_000);
+    page.focus.close();
   });
 
   it('zera o tempo quando o cronômetro vence', () => {
     const old = new Date(Date.now() - 51 * 60_000).toISOString();
-    const stale = { ...plan, sessions: [session({ startedAt: old })] };
-    const page = build({ competition: competition.id }, stale);
-    page.selectSession(stale.sessions[0]);
-    page['now'].set(Date.now());
-    page['syncRemaining']();
+    const stale = { ...plan, sessions: [session({ status: 'in_progress', startedAt: old })] };
+    const page = build({ competition: competition.id, session: 'session-1' }, stale);
 
-    expect(page.remainingMs()).toBe(0);
-    expect(page.finishedFocus()).toBe(true);
-    expect(page.focusProgress()).toBe(1);
-    page.closeSession();
+    expect(page.focus.finished()).toBe(true);
+    expect(page.focus.remainingMs()).toBe(0);
+    expect(page.focus.progress()).toBe(1);
+    page.focus.close();
   });
 
-  it('pausa e retoma sem perder o tempo já investido', () => {
+  // Pausar precisa ir para o servidor. Se ficasse só no setInterval, o startedAt antigo continuaria
+  // valendo e ao recarregar a página o relógio voltaria a correr: a pausa seria mentira.
+  it('pausa no servidor e preserva o tempo investido', async () => {
     const page = build({ competition: competition.id, session: 'session-1' });
     api.startSession.mockReturnValue(
-      of({ ...plan, sessions: [session({ startedAt: '2026-09-30T10:00:00Z' })] }),
+      of({
+        ...plan,
+        sessions: [session({ status: 'in_progress', startedAt: '2026-09-30T10:00:00Z' })],
+      }),
     );
     api.pauseSession.mockReturnValue(
       of({
@@ -145,17 +147,56 @@ describe('PlanPage', () => {
         sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 420 })],
       }),
     );
-    page.start();
-    page['now'].set(new Date('2026-09-30T10:07:00Z').getTime());
-    page['syncRemaining']();
+    await page.focus.start();
 
-    page.togglePause();
+    await page.focus.toggle();
 
-    // O servidor banka os 7 min que decorreram: 420s acumulados, 50 - 7 = 43 min restantes.
-    // Pausar não devolve tempo, e o valor sobrevive ao F5 porque veio do servidor.
-    expect(page.running()).toBe(false);
-    expect(page.remainingMs()).toBe(43 * 60 * 1000);
-    page.closeSession();
+    expect(api.pauseSession).toHaveBeenCalledWith(competition.id, 'session-1');
+    expect(page.focus.running()).toBe(false);
+    // O servidor bankou os 7 min decorridos: 420s acumulados, 50 - 7 = 43 min restantes.
+    expect(page.focus.remainingMs()).toBe(43 * 60_000);
+    page.focus.close();
+  });
+
+  it('ao recarregar uma sessão pausada, mostra o que restou e não zera', () => {
+    const paused = {
+      ...plan,
+      sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 1200 })],
+    };
+    const page = build({ competition: competition.id, session: 'session-1' }, paused);
+
+    // 20 min investidos de 50. Antes, sem accumulatedSeconds, isso voltava a 50:00.
+    expect(page.focus.remainingMs()).toBe(30 * 60 * 1000);
+    expect(page.focus.started()).toBe(true);
+    expect(page.focus.paused()).toBe(true);
+    page.focus.close();
+  });
+
+  it('retomar uma sessão pausada não devolve o tempo investido', async () => {
+    const paused = {
+      ...plan,
+      sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 900 })],
+    };
+    const page = build({ competition: competition.id, session: 'session-1' }, paused);
+    api.startSession.mockReturnValue(
+      of({
+        ...plan,
+        sessions: [
+          session({
+            status: 'in_progress',
+            startedAt: new Date().toISOString(),
+            accumulatedSeconds: 900,
+          }),
+        ],
+      }),
+    );
+
+    await page.focus.toggle();
+
+    expect(api.startSession).toHaveBeenCalledWith(competition.id, 'session-1');
+    expect(page.focus.running()).toBe(true);
+    expect(page.focus.remainingMs()).toBeLessThan(50 * 60 * 1000);
+    page.focus.close();
   });
 
   it('mostra disciplina do edital que ficou sem sessão, em vez de sumir', () => {
@@ -167,6 +208,27 @@ describe('PlanPage', () => {
       expect.arrayContaining(['Conhecimentos Específicos - Matemática', 'Língua Portuguesa']),
     );
     expect(rows.find((r) => r.name === 'Língua Portuguesa')?.scheduled).toBe(false);
+  });
+
+  it('conta sessões perdidas fora do total e no contador separado', () => {
+    const withMissed = {
+      ...plan,
+      sessions: [
+        session({ id: 'a', status: 'completed' }),
+        session({ id: 'b', status: 'missed', subjectName: 'Língua Portuguesa' }),
+        session({ id: 'c', status: 'planned' }),
+      ],
+    };
+    const page = build({ competition: competition.id }, withMissed, twoSubjects);
+
+    // 1 de 2 agendadas: a perdida não pode entrar no denominador.
+    expect(page.progress()).toBe(50);
+    expect(page.missed()).toBe(1);
+    expect(page.scheduled()).toBe(2);
+    const row = (page.subjectRows() as { name: string; missed: number }[]).find(
+      (r) => r.name === 'Língua Portuguesa',
+    );
+    expect(row?.missed).toBe(1);
   });
 
   it('avisa quantos tópicos do edital não couberam até a prova', () => {
@@ -213,85 +275,16 @@ describe('PlanPage', () => {
     ]);
   });
 
-  // Pausar precisa ir para o servidor. Se ficasse só no setInterval, o startedAt antigo continuaria
-  // valendo e ao recarregar a página o relógio voltaria a correr: a pausa seria mentira.
-  it('pausa no servidor e preserva o tempo investido', () => {
+  it('atualiza a linha do tempo quando o pomodoro é concluído pelo dock global', async () => {
     const page = build({ competition: competition.id, session: 'session-1' });
-    api.pauseSession.mockReturnValue(
-      of({
-        ...plan,
-        sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 600 })],
-      }),
-    );
+    const done = session({ id: 'session-1', status: 'completed', accumulatedSeconds: 3000 });
+    api.completeSession.mockReturnValue(of({ ...plan, sessions: [done] }));
+    TestBed.inject(FocusService);
 
-    page.start();
-    page.togglePause();
+    await page.focus.complete();
+    TestBed.tick();
 
-    expect(api.pauseSession).toHaveBeenCalledWith(competition.id, 'session-1');
-    expect(page.running()).toBe(false);
-    expect(page.selectedSession().status).toBe('paused');
-    expect(page.selectedSession().startedAt).toBeNull();
-    // 10 min de 50 investidos.
-    expect(page.remainingMs()).toBe(40 * 60 * 1000);
-    page.closeSession();
-  });
-
-  it('ao recarregar uma sessão pausada, mostra o que restou e não zera', () => {
-    const paused = {
-      ...plan,
-      sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 1200 })],
-    };
-    const page = build({ competition: competition.id, session: 'session-1' }, paused);
-    page['now'].set(Date.now());
-    page['syncRemaining']();
-
-    // 20 min investidos de 50. Antes, sem accumulatedSeconds, isso voltava a 50:00.
-    expect(page.remainingMs()).toBe(30 * 60 * 1000);
-    expect(page.hasStarted()).toBe(true);
-    expect(page.isPaused()).toBe(true);
-    page.closeSession();
-  });
-
-  it('retomar uma sessão pausada não devolve o tempo investido', () => {
-    const paused = {
-      ...plan,
-      sessions: [session({ status: 'paused', startedAt: null, accumulatedSeconds: 900 })],
-    };
-    const page = build({ competition: competition.id, session: 'session-1' }, paused);
-    const startedAt = new Date().toISOString();
-    api.startSession.mockReturnValue(
-      of({
-        ...plan,
-        sessions: [session({ status: 'in_progress', startedAt, accumulatedSeconds: 900 })],
-      }),
-    );
-
-    page.togglePause();
-
-    expect(api.startSession).toHaveBeenCalledWith(competition.id, 'session-1');
-    expect(page.running()).toBe(true);
-    expect(page.remainingMs()).toBeLessThan(50 * 60 * 1000);
-    page.closeSession();
-  });
-
-  it('conta sessões perdidas fora do total e no contador separado', () => {
-    const withMissed = {
-      ...plan,
-      sessions: [
-        session({ id: 'a', status: 'completed' }),
-        session({ id: 'b', status: 'missed', subjectName: 'Língua Portuguesa' }),
-        session({ id: 'c', status: 'planned' }),
-      ],
-    };
-    const page = build({ competition: competition.id }, withMissed, twoSubjects);
-
-    // 1 de 2 agendadas: a perdida não pode entrar no denominador.
-    expect(page.progress()).toBe(50);
-    expect(page.missed()).toBe(1);
-    expect(page.scheduled()).toBe(2);
-    const row = (page.subjectRows() as { name: string; missed: number }[]).find(
-      (r) => r.name === 'Língua Portuguesa',
-    );
-    expect(row?.missed).toBe(1);
+    expect(page.plan().sessions[0].status).toBe('completed');
+    page.focus.close();
   });
 });

@@ -9,6 +9,8 @@ import {
   Competition,
   OnboardingState,
   ProcessingJob,
+  ProgramOption,
+  ProgramSource,
   Syllabus,
   SyllabusSubject,
 } from 'api-client';
@@ -72,6 +74,10 @@ export class OnboardingPage implements OnDestroy {
   protected readonly state = signal<OnboardingState | null>(null);
   protected readonly competition = signal<Competition | null>(null);
   protected readonly syllabus = signal<Syllabus | null>(null);
+  /** Edital oficial transcrito no backend: entra sem PDF e sem depender de IA. */
+  protected readonly programs = signal<ProgramOption[]>([]);
+  protected readonly programSource = signal<ProgramSource | null>(null);
+  protected readonly chosenProgram = signal('');
   protected readonly draftSubjects = signal<SyllabusSubject[]>([]);
   protected readonly processing = signal<ProcessingJob | null>(null);
   protected readonly competitionForm = this.fb.nonNullable.group({
@@ -138,6 +144,7 @@ export class OnboardingPage implements OnDestroy {
             const examDate = competition.examDate ?? '';
             this.planForm.patchValue({ examDate });
             this.loading.set(false);
+            this.loadPrograms();
             if (state.currentStep === 'REVIEW') this.loadSyllabus(competition.id);
             if (state.currentStep === 'PROCESSING' && state.processingJob) {
               this.watch(state.processingJob.id);
@@ -180,6 +187,37 @@ export class OnboardingPage implements OnDestroy {
     this.jobError.set('');
     this.api.uploadDocument(competition.id, file).subscribe({
       next: ({ jobId }) => this.watch(jobId),
+      error: (error: unknown) => this.fail(uploadErrorMessage(error)),
+    });
+  }
+
+  /** Sugere o cargo digitado, mas só quando a correspondência é exata: errar aqui semeia o edital
+   * errado inteiro, então na dúvida o usuário escolhe. */
+  protected suggestedProgram(): string {
+    const role = this.competition()?.role ?? '';
+    return this.programs().find((p) => p.name === role)?.slug ?? '';
+  }
+
+  protected loadPrograms(): void {
+    if (this.programs().length) return;
+    this.api.programs().subscribe({
+      next: ({ programs, source }) => {
+        this.programs.set(programs);
+        this.programSource.set(source);
+        this.chosenProgram.set(this.suggestedProgram());
+      },
+      error: () => this.programs.set([]),
+    });
+  }
+
+  protected applyProgram(): void {
+    const competition = this.competition();
+    const slug = this.chosenProgram();
+    if (!competition || !slug) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.api.applyProgram(competition.id, slug).subscribe({
+      next: () => this.loadSyllabus(competition.id),
       error: (error: unknown) => this.fail(uploadErrorMessage(error)),
     });
   }

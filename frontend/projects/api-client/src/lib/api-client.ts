@@ -93,6 +93,23 @@ export interface SyllabusSubject {
   weight: number;
   topics: SyllabusTopic[];
 }
+/** Um cargo do edital oficial, com o conteúdo programático já transcrito no backend. */
+export interface ProgramOption {
+  slug: string;
+  name: string;
+  topicos: number;
+  subtopicos: number;
+  weight: number;
+}
+export interface ProgramSource {
+  orgao: string;
+  edital: string;
+  publicacao: string;
+  anexo: string;
+  questoesP1: number;
+  questoesP2: number;
+  transcricao: string;
+}
 export interface Syllabus {
   id: string;
   competitionId: string;
@@ -169,9 +186,21 @@ export interface SimulationRun {
   simulation: Simulation;
   questions: Question[];
 }
-export interface SimulationStart extends SimulationRun {
+export interface SimulationStart {
+  simulation: Simulation | null;
+  questions: Question[];
   jobId: string | null;
-  status: string;
+  status: 'READY' | 'PENDING';
+  /** Quantas questões vieram do banco e quantas a IA ainda precisa criar. */
+  bankAvailable: number;
+  toGenerate: number;
+}
+
+/** Quanto o banco já tem para o pedido, antes de qualquer chamada de IA. */
+export interface SimulationAvailability {
+  publishedInScope: number;
+  usableForRequest: number;
+  toGenerate: number;
 }
 export interface MockExamSource {
   id: string;
@@ -205,6 +234,14 @@ export interface AiPolicy {
   globalPerMinute: number;
   globalTokensDay: number;
   killSwitch: boolean;
+}
+export interface AiAuditEntry {
+  id: number;
+  action: string;
+  subject: string | null;
+  detail: string | null;
+  actor: string;
+  createdAt: string;
 }
 export interface AiDashboard {
   summary: {
@@ -352,6 +389,14 @@ export class ApiClient {
   reviseSyllabus(id: string, subjects: SyllabusSubject[]): Observable<Syllabus> {
     return this.http.put<Syllabus>(`/api/v1/competitions/${id}/syllabus/draft`, { subjects });
   }
+  /** Programas do edital oficial. Não depende de credencial de IA. */
+  programs(): Observable<{ programs: ProgramOption[]; source: ProgramSource }> {
+    return this.http.get<{ programs: ProgramOption[]; source: ProgramSource }>('/api/v1/programs');
+  }
+  /** Aplica o conteúdo programático do catálogo ao concurso, como rascunho para revisão. */
+  applyProgram(id: string, slug: string): Observable<Syllabus> {
+    return this.http.post<Syllabus>(`/api/v1/competitions/${id}/syllabus/program/${slug}`, {});
+  }
   onboarding(): Observable<OnboardingState> {
     return this.http.get<OnboardingState>('/api/v1/onboarding');
   }
@@ -412,6 +457,21 @@ export class ApiClient {
     return this.http.post<SimulationStart>(
       `/api/v1/competitions/${competitionId}/simulations`,
       body,
+    );
+  }
+  simulationAvailability(
+    competitionId: string,
+    params: { subjectId?: string | null; difficulty: number; count: number },
+  ): Observable<SimulationAvailability> {
+    return this.http.get<SimulationAvailability>(
+      `/api/v1/competitions/${competitionId}/simulations/availability`,
+      {
+        params: {
+          subjectId: params.subjectId ?? '',
+          difficulty: params.difficulty,
+          count: params.count,
+        },
+      },
     );
   }
   simulation(id: string): Observable<Simulation> {
@@ -530,6 +590,10 @@ export class ApiClient {
     return this.http.delete<AiProvidersOverview>(
       `/api/admin/v1/ai/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}`,
     );
+  }
+  /** ai_audit do ai-service. Não tinha consumidor nenhum: mudar chave, modelo ou rota não deixava rastro. */
+  aiAudit(): Observable<AiAuditEntry[]> {
+    return this.http.get<AiAuditEntry[]>('/api/admin/v1/ai/audit');
   }
   aiUsage(hours = 24): Observable<AiDashboard> {
     return this.http.get<AiDashboard>('/api/admin/v1/ai/usage', { params: { hours } });

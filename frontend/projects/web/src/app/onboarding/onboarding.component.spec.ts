@@ -44,11 +44,42 @@ describe('OnboardingPage', () => {
     reviseSyllabus: vi.fn(),
     approveSyllabus: vi.fn(),
     generatePlan: vi.fn(),
+    programs: vi.fn(),
+    applyProgram: vi.fn(),
   };
 
   beforeEach(async () => {
     vi.clearAllMocks();
     api.onboarding.mockReturnValue(of(initial));
+    api.programs.mockReturnValue(
+      of({
+        programs: [
+          {
+            slug: 'professor-matematica',
+            name: 'Professor de Matemática',
+            topicos: 19,
+            subtopicos: 41,
+            weight: 50,
+          },
+          {
+            slug: 'professor-biologia',
+            name: 'Professor de Biologia',
+            topicos: 17,
+            subtopicos: 53,
+            weight: 50,
+          },
+        ],
+        source: {
+          orgao: 'Seduc',
+          edital: 'Edital nº 014/2026',
+          publicacao: 'DOE 14/08/2026',
+          anexo: 'Anexo III',
+          questoesP1: 30,
+          questoesP2: 50,
+          transcricao: 'Literal do Anexo III.',
+        },
+      }),
+    );
     await TestBed.configureTestingModule({
       imports: [OnboardingPage],
       providers: [provideRouter([]), { provide: ApiClient, useValue: api }],
@@ -80,6 +111,74 @@ describe('OnboardingPage', () => {
     expect(api.updateOnboarding).toHaveBeenCalledWith({
       dismissed: false,
       competitionId: competition.id,
+    });
+  });
+
+  describe('edital oficial do catálogo', () => {
+    const started = (role: string) => {
+      api.onboarding.mockReturnValue(
+        of({
+          ...initial,
+          status: 'IN_PROGRESS',
+          currentStep: 'DOCUMENT',
+          competitionId: competition.id,
+        }),
+      );
+      api.competition.mockReturnValue(of({ ...competition, role }));
+      const fixture = TestBed.createComponent(OnboardingPage);
+      fixture.detectChanges();
+      return fixture.componentInstance as any;
+    };
+
+    it('carrega o catálogo assim que existe concurso', () => {
+      const component = started('Professor de Matemática');
+
+      expect(api.programs).toHaveBeenCalled();
+      expect(component.programs().length).toBe(2);
+    });
+
+    it('escolhe o cargo sozinho quando bate exatamente com o que foi digitado', () => {
+      // Digitou o nome oficial do cargo: não faz sentido obrigar a escolher de novo.
+      expect(started('Professor de Matemática').chosenProgram()).toBe('professor-matematica');
+    });
+
+    it('não escolhe quando o cargo digitado não bate com nenhum programa', () => {
+      // Cargo genérico: chutar aqui semearia o edital inteiro errado.
+      expect(started('Auditor').chosenProgram()).toBe('');
+    });
+
+    it('aplica o programa escolhido e recarrega o rascunho para revisão', () => {
+      const component = started('Professor de Biologia');
+      api.applyProgram.mockReturnValue(
+        of({
+          id: 'syllabus-id',
+          competitionId: competition.id,
+          status: 'DRAFT',
+          subjects: [],
+        } as any),
+      );
+      api.syllabus.mockReturnValue(
+        of({
+          id: 'syllabus-id',
+          competitionId: competition.id,
+          status: 'DRAFT',
+          subjects: [],
+        } as any),
+      );
+      component.chosenProgram.set('professor-biologia');
+
+      component.applyProgram();
+
+      expect(api.applyProgram).toHaveBeenCalledWith(competition.id, 'professor-biologia');
+      expect(api.syllabus).toHaveBeenCalledWith(competition.id);
+    });
+
+    it('não aplica nada sem programa escolhido', () => {
+      const component = started('Auditor');
+
+      component.applyProgram();
+
+      expect(api.applyProgram).not.toHaveBeenCalled();
     });
   });
 

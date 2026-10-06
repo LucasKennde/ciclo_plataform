@@ -3,12 +3,13 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { LucideAngularModule } from 'lucide-angular';
 import { ApiClient } from 'api-client';
 import { AuthService } from 'auth';
+import { FocusDockComponent } from '../shared/focus-dock.component';
 import { icons } from '../shared/icons';
 
 @Component({
   standalone: true,
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, LucideAngularModule],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, LucideAngularModule, FocusDockComponent],
   templateUrl: './app-shell.component.html',
 })
 export class AppShell {

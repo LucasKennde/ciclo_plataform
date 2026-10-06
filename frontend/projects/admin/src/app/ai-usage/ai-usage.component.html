@@ -73,3 +73,29 @@
     }
   </div></ciclo-card
 >
+
+<h2>Auditoria de IA</h2>
+<ciclo-card
+  ><p class="muted">
+    Quem mexeu em credencial, modelo ou rota. Antes disso não existia tela nenhuma: o dado estava na
+    tabela e sem consumidor.
+  </p>
+  <div class="table mt-3">
+    <div class="row header">
+      <span>Ação</span><span>Objeto</span><span>Detalhe</span><span>Ator</span><span>Data</span>
+    </div>
+    @for (entry of audit(); track entry.id) {
+      <div class="row">
+        <span>{{ auditLabel(entry.action) }}</span
+        ><span>{{ entry.subject || '—' }}</span
+        ><span class="muted">{{ entry.detail || '—' }}</span
+        ><span>{{ entry.actor }}</span
+        ><span>{{ entry.createdAt | date: 'short' }}</span>
+      </div>
+    } @empty {
+      <div class="row">
+        <span class="muted">Nenhum registro ainda.</span>
+      </div>
+    }
+  </div></ciclo-card
+>

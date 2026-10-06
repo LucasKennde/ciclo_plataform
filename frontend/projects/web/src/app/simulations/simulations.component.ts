@@ -5,7 +5,15 @@ import { Router, RouterLink } from '@angular/router';
 import { Subscription, forkJoin, switchMap, takeWhile, timer } from 'rxjs';
 import { LucideAngularModule } from 'lucide-angular';
 import { DialogComponent } from 'ui';
-import { ApiClient, Competition, MockExamSource, Question, Simulation, Syllabus } from 'api-client';
+import {
+  ApiClient,
+  Competition,
+  MockExamSource,
+  Question,
+  Simulation,
+  SimulationAvailability,
+  Syllabus,
+} from 'api-client';
 import { accuracy } from '../shared/view-models';
 import { icons } from '../shared/icons';
 
@@ -38,8 +46,20 @@ export class SimulationsPage implements OnDestroy {
   protected readonly form = this.fb.nonNullable.group({
     subjectId: [''],
     difficulty: [3, [Validators.min(1), Validators.max(5)]],
-    count: [10, [Validators.min(1), Validators.max(20)]],
+    count: [20, [Validators.min(1), Validators.max(60)]],
   });
+  /** Rótulos: um número solto de 1 a 5 não diz nada para quem vai fazer a prova. */
+  protected readonly difficulties = [
+    { value: 1, label: 'Fácil', hint: 'reconhecimento' },
+    { value: 2, label: 'Razoável', hint: 'compreensão' },
+    { value: 3, label: 'Média', hint: 'aplicação' },
+    { value: 4, label: 'Difícil', hint: 'análise' },
+    { value: 5, label: 'Avançada', hint: 'ponta de prova' },
+  ];
+  protected readonly counts = [10, 20, 30, 40, 60];
+  protected readonly availability = signal<SimulationAvailability | null>(null);
+  protected readonly checking = signal(false);
+  private availabilitySubscription?: Subscription;
   protected readonly finished = computed(() =>
     this.simulations().filter((item) => item.status === 'FINISHED'),
   );
@@ -65,6 +85,7 @@ export class SimulationsPage implements OnDestroy {
   /** O polling da geração de questões não pode vazar quando o usuário sai da tela. */
   ngOnDestroy(): void {
     this.generationSubscription?.unsubscribe();
+    this.availabilitySubscription?.unsubscribe();
   }
   protected select(competition: Competition | null): void {
     this.competition.set(competition);
@@ -84,6 +105,42 @@ export class SimulationsPage implements OnDestroy {
   protected selectById(id: string): void {
     this.select(this.competitions().find((competition) => competition.id === id) ?? null);
   }
+  protected difficultyLabel(value: number): string {
+    return this.difficulties.find((d) => d.value === value)?.label ?? 'Média';
+  }
+
+  /** Duração estimada: ~2 min por questão é a média de provas objetivas. */
+  protected estimatedMinutes(): number {
+    return this.form.getRawValue().count * 2;
+  }
+
+  /** Reprocessa o diagnóstico quando o pedido muda, para o resumo não mentir. */
+  protected refreshAvailability(): void {
+    const competition = this.competition();
+    if (!competition) return;
+    this.availabilitySubscription?.unsubscribe();
+    this.checking.set(true);
+    const { subjectId, difficulty, count } = this.form.getRawValue();
+    this.availabilitySubscription = this.api
+      .simulationAvailability(competition.id, { subjectId, difficulty, count })
+      .subscribe({
+        next: (value) => {
+          this.availability.set(value);
+          this.checking.set(false);
+        },
+        error: () => {
+          this.availability.set(null);
+          this.checking.set(false);
+        },
+      });
+  }
+
+  protected openCreate(): void {
+    this.createOpen.set(true);
+    this.error.set('');
+    this.refreshAvailability();
+  }
+
   protected start(): void {
     const competition = this.competition();
     if (!competition) return;

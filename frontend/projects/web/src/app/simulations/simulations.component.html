@@ -20,7 +20,7 @@
         </select>
       }
       <button
-        (click)="createOpen.set(true)"
+        (click)="openCreate()"
         [disabled]="!competition()"
         class="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-extrabold text-white"
       >
@@ -81,7 +81,7 @@
         Seu primeiro simulado ajuda o Ciclo a entender onde você precisa melhorar.
       </p>
       <button
-        (click)="createOpen.set(true)"
+        (click)="openCreate()"
         class="mt-6 rounded-xl bg-primary px-5 py-3 font-extrabold text-white"
       >
         Criar primeiro simulado
@@ -171,58 +171,132 @@
   </div>
 </section>
 @if (createOpen()) {
-  <div
-    class="fixed inset-0 z-50 grid place-items-center bg-text/45 p-4"
-    (click)="createOpen.set(false)"
-  >
-    <form
-      [formGroup]="form"
-      (ngSubmit)="start()"
-      (click)="$event.stopPropagation()"
-      class="grid w-full max-w-lg gap-5 rounded-3xl bg-white p-7"
-    >
-      <header class="flex justify-between">
-        <div>
+  <ciclo-dialog #createDialog (dismiss)="createOpen.set(false)" panelClass="max-w-xl">
+    <form [formGroup]="form" (ngSubmit)="start()">
+      <header class="flex items-start justify-between gap-4 border-b border-line p-7 pb-5">
+        <div class="min-w-0">
           <p class="text-xs font-extrabold tracking-widest text-faint">NOVO SIMULADO</p>
-          <h2 class="mt-1 text-2xl font-extrabold">O que você quer treinar?</h2>
+          <h2 [id]="createDialog.labelId" class="mt-1 text-2xl font-extrabold">Monte sua prova</h2>
+          <p class="mt-1 text-sm text-muted">
+            Escolha o recorte. As questões que faltarem são criadas pela IA a partir do seu edital.
+          </p>
         </div>
-        <button type="button" (click)="createOpen.set(false)">
-          <lucide-icon [img]="icons.X" />
+        <button
+          type="button"
+          (click)="createOpen.set(false)"
+          class="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-muted hover:bg-bg"
+          aria-label="Fechar"
+        >
+          <lucide-icon [img]="icons.X" [size]="18" />
         </button>
       </header>
-      <label class="grid gap-2 text-sm font-bold"
-        >Disciplina<select
-          formControlName="subjectId"
-          class="rounded-xl border border-line px-4 py-3"
-        >
-          <option value="">Todas as disciplinas</option>
-          @for (subject of syllabus()?.subjects ?? []; track subject.id) {
-            <option [value]="subject.id">{{ subject.name }}</option>
-          }
-        </select></label
-      >
-      <div class="grid grid-cols-2 gap-4">
-        <label class="grid gap-2 text-sm font-bold"
-          >Dificuldade<input
-            type="number"
-            min="1"
-            max="5"
-            formControlName="difficulty"
-            class="rounded-xl border border-line px-4 py-3" /></label
-        ><label class="grid gap-2 text-sm font-bold"
-          >Questões<input
-            type="number"
-            min="1"
-            max="20"
-            formControlName="count"
-            class="rounded-xl border border-line px-4 py-3"
-        /></label>
+
+      <div class="grid gap-6 p-7">
+        <fieldset class="grid gap-2">
+          <legend class="text-sm font-extrabold">Disciplina</legend>
+          <p class="text-xs text-muted">"Todas" mistura o conteúdo do edital inteiro.</p>
+          <select
+            formControlName="subjectId"
+            (change)="refreshAvailability()"
+            class="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm font-bold outline-none focus:border-primary"
+          >
+            <option value="">Todas as disciplinas</option>
+            @for (subject of syllabus()?.subjects ?? []; track subject.id) {
+              <option [value]="subject.id">{{ subject.name }}</option>
+            }
+          </select>
+        </fieldset>
+
+        <fieldset class="grid gap-2">
+          <legend class="text-sm font-extrabold">Nível de dificuldade</legend>
+          <div
+            class="grid grid-cols-2 gap-2 sm:grid-cols-5"
+            role="radiogroup"
+            aria-label="Nível de dificuldade"
+          >
+            @for (level of difficulties; track level.value) {
+              <button
+                type="button"
+                role="radio"
+                [attr.aria-checked]="form.getRawValue().difficulty === level.value"
+                (click)="form.patchValue({ difficulty: level.value }); refreshAvailability()"
+                class="grid gap-0.5 rounded-xl border px-3 py-2.5 text-left transition"
+                [class]="
+                  form.getRawValue().difficulty === level.value
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-line bg-white hover:border-primary/40'
+                "
+              >
+                <span class="text-sm font-extrabold">{{ level.label }}</span>
+                <span class="text-[10px] text-muted">{{ level.hint }}</span>
+              </button>
+            }
+          </div>
+        </fieldset>
+
+        <fieldset class="grid gap-2">
+          <legend class="text-sm font-extrabold">Quantidade</legend>
+          <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Quantidade de questões">
+            @for (option of counts; track option) {
+              <button
+                type="button"
+                role="radio"
+                [attr.aria-checked]="form.getRawValue().count === option"
+                (click)="form.patchValue({ count: option }); refreshAvailability()"
+                class="h-11 min-w-[4.5rem] rounded-xl border px-4 font-extrabold transition"
+                [class]="
+                  form.getRawValue().count === option
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-line bg-white hover:border-primary/40'
+                "
+              >
+                {{ option }}
+              </button>
+            }
+          </div>
+          <p class="text-xs text-muted">Tempo estimado: {{ estimatedMinutes() }} min</p>
+        </fieldset>
+
+        @if (availability(); as a) {
+          <div
+            class="rounded-2xl p-4 text-sm"
+            [class]="a.toGenerate > 0 ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'"
+            aria-live="polite"
+          >
+            @if (checking()) {
+              <p>Conferindo seu banco de questões…</p>
+            } @else if (a.toGenerate > 0) {
+              <p>
+                Você tem <b>{{ a.publishedInScope }}</b> questão(ões) publicada(s) neste recorte. A
+                IA vai criar <b>{{ a.toGenerate }}</b> — leva alguns segundos.
+              </p>
+            } @else {
+              <p>
+                Você tem <b>{{ a.usableForRequest }}</b> questão(ões) prontas, sem gastar IA. As
+                menos vistas entram primeiro.
+              </p>
+            }
+          </div>
+        }
       </div>
-      <button [disabled]="busy()" class="rounded-xl bg-primary px-5 py-3 font-extrabold text-white">
-        {{ busy() ? 'Preparando…' : 'Começar simulado' }}
-      </button>
+
+      <footer class="border-t border-line p-7 pt-5">
+        <button
+          type="submit"
+          [disabled]="busy() || checking()"
+          class="w-full rounded-xl bg-primary px-5 py-3.5 font-extrabold text-white disabled:opacity-40"
+        >
+          {{
+            availability()?.toGenerate
+              ? 'Gerar com IA e começar'
+              : busy()
+                ? 'Montando…'
+                : 'Começar simulado'
+          }}
+        </button>
+      </footer>
     </form>
-  </div>
+  </ciclo-dialog>
 }
 @if (generating()) {
   <ciclo-dialog panelClass="max-w-md" (dismiss)="noop()">
