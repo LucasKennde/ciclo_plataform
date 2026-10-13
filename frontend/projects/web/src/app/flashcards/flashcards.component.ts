@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { ApiClient, Competition, Flashcard } from 'api-client';
@@ -31,6 +31,46 @@ export class FlashcardsPage {
       : this.cards(),
   );
   protected readonly card = computed(() => this.filtered()[this.index()] ?? null);
+  /** Barra de progresso: quanto falta, não só em que número estamos. */
+  protected readonly progress = computed(() => {
+    const total = this.filtered().length;
+    return total ? ((this.index() + 1) / total) * 100 : 0;
+  });
+  protected flip(): void {
+    this.flipped.update((value) => !value);
+  }
+  protected closeStudy(): void {
+    this.studyOpen.set(false);
+    this.flipped.set(false);
+  }
+  /**
+   * Teclado é o caminho natural de revisão: um card por tecla, sem tirar a mão do teclado. Espaço
+   * vira o card, setas navegam, Esc fecha.
+   */
+  @HostListener('document:keydown', ['$event'])
+  protected onKey(event: KeyboardEvent): void {
+    if (!this.studyOpen()) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeStudy();
+      return;
+    }
+    const alvo = event.target as HTMLElement | null;
+    // Não sequestrar a barra de espaço de quem está digitando num campo do formulário.
+    if (alvo && /^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)) return;
+    if (event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault();
+      this.flip();
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      this.next(1);
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      this.next(-1);
+    }
+  }
   constructor() {
     this.api.competitions().subscribe((items) => this.competitions.set(items));
     this.load();
