@@ -24,6 +24,8 @@ export class SimulationPage {
   protected readonly selected = signal<number | null>(null);
   protected readonly busy = signal(false);
   protected readonly editing = signal(false);
+  protected readonly cardsBusy = signal(false);
+  protected readonly cardsNotice = signal('');
   protected readonly titleForm = this.fb.nonNullable.group({
     title: ['', [Validators.required, Validators.maxLength(160)]],
   });
@@ -83,6 +85,33 @@ export class SimulationPage {
     if (simulation)
       this.api.finishSimulation(simulation.id).subscribe((updated) => this.simulation.set(updated));
   }
+  /**
+   * Um cartão por questão respondida, com gabarito e justificativa no verso. O botão some depois
+   * de gerar: repetir não criaria nada, e a tela precisa dizer isso em vez de fingir que adianta.
+   */
+  protected makeFlashcards(): void {
+    const simulation = this.simulation();
+    // A tela só oferece o botão com o simulado concluído; a guarda fica aqui também, senão o
+    // componente aceita gerar cartão de uma prova abandonada no meio.
+    if (!simulation || simulation.status !== 'FINISHED' || this.cardsBusy()) return;
+    this.cardsBusy.set(true);
+    this.cardsNotice.set('');
+    this.api.flashcardsFromSimulation(simulation.competitionId, simulation.id).subscribe({
+      next: (result) => {
+        this.cardsBusy.set(false);
+        this.cardsNotice.set(
+          result.criados > 0
+            ? `${result.criados} ${result.criados === 1 ? 'flashcard criado' : 'flashcards criados'}${result.erros > 0 ? ` a partir dos ${result.erros} ${result.erros === 1 ? 'erro' : 'erros'} que você cometeu` : ''}.`
+            : 'Essas questões já viraram flashcard antes.',
+        );
+      },
+      error: () => {
+        this.cardsBusy.set(false);
+        this.cardsNotice.set('Não foi possível gerar os flashcards agora.');
+      },
+    });
+  }
+
   protected rename(): void {
     const simulation = this.simulation();
     if (!simulation || this.titleForm.invalid) return;

@@ -169,6 +169,16 @@ public class StudyController {
     study.deleteFlashcard(workspace(jwt), id);
   }
 
+  /**
+   * Gera um flashcard por questão respondida do simulado. Sem IA: enunciado, gabarito e
+   * justificativa já estão no banco. Rodar de novo não duplica nada.
+   */
+  @PostMapping("/competitions/{id}/flashcards/from-simulation/{simulationId}")
+  FlashcardsFromSimulation flashcardsFromSimulation(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable UUID simulationId) {
+    return study.flashcardsFromSimulation(workspace(jwt), id, simulationId);
+  }
+
   @PostMapping("/competitions/{id}/simulations")
   ResponseEntity<StartSimulationResult> start(
       @AuthenticationPrincipal Jwt jwt,

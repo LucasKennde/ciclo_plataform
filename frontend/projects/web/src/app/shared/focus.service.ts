@@ -16,6 +16,12 @@ import { ApiClient, PlannedSession, StudyPlan } from 'api-client';
  */
 @Injectable({ providedIn: 'root' })
 export class FocusService {
+  /**
+   * Só o ponteiro fica no navegador: qual sessão estava aberta. O tempo em si nunca sai do
+   * servidor. Guardar os dois aqui faria o contador divergir do banco a cada recarregamento.
+   */
+  private static readonly STORAGE_KEY = 'ciclo.focus.v1';
+
   private readonly api = inject(ApiClient);
   private competitionId: string | null = null;
   private tick?: ReturnType<typeof setInterval>;
@@ -52,15 +58,20 @@ export class FocusService {
     return Math.min(1, Math.max(0, 1 - remaining / (session.minutes * 60_000)));
   });
 
-  /** Abre uma sessão. `from` identifica a competition para as chamadas de start/pause. */
-  open(competitionId: string, session: PlannedSession): void {
+  /** Abre uma sessão. `competitionId` identifica o concurso para as chamadas de start/pause. */
+  open(competitionId: string, session: PlannedSession, remember = true): void {
     this.competitionId = competitionId;
     this.session.set(session);
     this.error.set('');
     this.now.set(Date.now());
     this.syncRemaining();
-    // Reabrir uma sessão já em andamento retoma o relógio sem tocar no servidor.
-    if (session.startedAt && !this.running()) this.startTicking();
+    if (remember) this.remember(competitionId, session.id);
+    // Reabrir uma sessão já em andamento retoma o relógio sem tocar no servidor. O estado precisa
+    // acompanhar: deixar `running` falso fazia o botão oferecer "iniciar" sobre um pomodoro que
+    // estava contando, e o próximo toque chamava start em vez de pause.
+    const emAndamento = !!session.startedAt;
+    this.running.set(emAndamento);
+    if (emAndamento) this.startTicking();
   }
 
   close(): void {
@@ -69,6 +80,61 @@ export class FocusService {
     this.session.set(null);
     this.remainingMs.set(null);
     this.competitionId = null;
+    this.forget();
+  }
+
+  /**
+   * Recoloca o dock depois de um F5.
+   *
+   * <p>Quem entra no app no meio de uma sessão é justamente quem estuda em outra aba ou no
+   * celular e volta depois — sem isto o pomodoro some e o usuário perde a noção do que estava
+   * fazendo. Busca o plano no servidor e reabre: se a sessão foi concluída, apagada ou o plano
+   * regerado no meio, some sem erro.
+   */
+  async restore(): Promise<void> {
+    if (this.session()) return;
+    const pointer = this.readPointer();
+    if (!pointer) return;
+    try {
+      const plan = await firstValueFrom(this.api.plan(pointer.competitionId));
+      const session = plan.sessions.find((item) => item.id === pointer.sessionId);
+      if (!session || session.status === 'completed' || session.status === 'missed') {
+        this.forget();
+        return;
+      }
+      this.lastPlan.set(plan);
+      this.open(pointer.competitionId, session, false);
+    } catch {
+      // Offline ou servidor fora: o ponteiro fica para a próxima tentativa.
+    }
+  }
+
+  private remember(competitionId: string, sessionId: string): void {
+    try {
+      localStorage.setItem(FocusService.STORAGE_KEY, JSON.stringify({ competitionId, sessionId }));
+    } catch {
+      // Navegador bloqueando storage não pode impedir o pomodoro de funcionar.
+    }
+  }
+
+  private forget(): void {
+    try {
+      localStorage.removeItem(FocusService.STORAGE_KEY);
+    } catch {
+      // idem
+    }
+  }
+
+  private readPointer(): { competitionId: string; sessionId: string } | null {
+    try {
+      const raw = localStorage.getItem(FocusService.STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { competitionId?: string; sessionId?: string };
+      if (!parsed?.competitionId || !parsed?.sessionId) return null;
+      return { competitionId: parsed.competitionId, sessionId: parsed.sessionId };
+    } catch {
+      return null;
+    }
   }
 
   async start(): Promise<void> {
@@ -129,6 +195,8 @@ export class FocusService {
       this.apply(plan, session.id);
       this.running.set(false);
       this.stopTicking();
+      // Sessão concluída não pode reaparecer no próximo F5.
+      this.forget();
       return plan;
     } catch {
       this.error.set('Não foi possível registrar a conclusão.');

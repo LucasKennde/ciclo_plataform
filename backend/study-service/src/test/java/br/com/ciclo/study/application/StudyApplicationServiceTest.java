@@ -760,6 +760,183 @@ class StudyApplicationServiceTest {
         .hasMessageContaining("aprovada");
   }
 
+  // --- flashcards a partir do simulado
+  // ------------------------------------------------------------
+
+  private static Question answeredQuestion(
+      UUID competitionId, String statement, String explanation) {
+    return new Question(
+        UUID.randomUUID(),
+        null,
+        competitionId,
+        null,
+        "topic-1",
+        "GENERATED",
+        "READY",
+        "Cebraspe",
+        3,
+        statement,
+        List.of("a", "b", "c", "d"),
+        2,
+        explanation,
+        List.of(),
+        Instant.now(),
+        Instant.now());
+  }
+
+  private Simulation answeredSimulation(UUID competitionId, Question... questions) {
+    var items = new ArrayList<SimulationItem>();
+    for (int i = 0; i < questions.length; i++) {
+      var q = questions[i];
+      // Metade errada de propósito, para o contador de erros ter o que medir.
+      items.add(new SimulationItem(q.id(), q.topicId(), q.correctIndex(), i % 2, Instant.now()));
+    }
+    return new Simulation(
+        UUID.randomUUID(),
+        null,
+        competitionId,
+        "Simulado",
+        "FINISHED",
+        items,
+        40,
+        Instant.now(),
+        Instant.now());
+  }
+
+  @Test
+  void buildsOneFlashcardPerAnsweredQuestionFromTheSimulation() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var questions =
+        List.of(
+            answeredQuestion(competitionId, "Enunciado um", "Porque um"),
+            answeredQuestion(competitionId, "Enunciado dois", "Porque dois"));
+    var simulation = answeredSimulation(competitionId, questions.toArray(Question[]::new));
+    when(store.simulation(workspaceId, simulation.id())).thenReturn(Optional.of(simulation));
+    when(store.questions(workspaceId, competitionId)).thenReturn(questions);
+    when(store.flashcards(workspaceId, competitionId)).thenReturn(List.of());
+    when(store.saveFlashcard(any())).thenAnswer(i -> i.getArgument(0));
+
+    var result = service.flashcardsFromSimulation(workspaceId, competitionId, simulation.id());
+
+    assertThat(result.criados()).isEqualTo(2);
+    assertThat(result.ignorados()).isZero();
+    // Gabarito é sempre o índice 2 e as respostas são 0 e 1: os dois erraram.
+    assertThat(result.erros()).isEqualTo(2);
+  }
+
+  @Test
+  void flashcardBackCarriesTheCorrectAlternativeAndTheExplanation() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var q = answeredQuestion(competitionId, "Enunciado", "Justificativa");
+    var simulation = answeredSimulation(competitionId, q);
+    when(store.simulation(workspaceId, simulation.id())).thenReturn(Optional.of(simulation));
+    when(store.questions(workspaceId, competitionId)).thenReturn(List.of(q));
+    when(store.flashcards(workspaceId, competitionId)).thenReturn(List.of());
+    when(store.saveFlashcard(any())).thenAnswer(i -> i.getArgument(0));
+
+    service.flashcardsFromSimulation(workspaceId, competitionId, simulation.id());
+
+    var saved = org.mockito.ArgumentCaptor.forClass(Flashcard.class);
+    org.mockito.Mockito.verify(store).saveFlashcard(saved.capture());
+    assertThat(saved.getValue().front()).isEqualTo("Enunciado");
+    assertThat(saved.getValue().back()).contains("Gabarito: C) c").contains("Justificativa");
+    assertThat(saved.getValue().competitionId()).isEqualTo(competitionId);
+  }
+
+  @Test
+  void runningTwiceDoesNotDuplicateTheStack() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var q = answeredQuestion(competitionId, "Enunciado", "Justificativa");
+    var simulation = answeredSimulation(competitionId, q);
+    when(store.simulation(workspaceId, simulation.id())).thenReturn(Optional.of(simulation));
+    when(store.questions(workspaceId, competitionId)).thenReturn(List.of(q));
+    when(store.flashcards(workspaceId, competitionId))
+        .thenReturn(
+            List.of(
+                new Flashcard(
+                    UUID.randomUUID(),
+                    workspaceId,
+                    competitionId,
+                    "Enunciado",
+                    "já existia",
+                    Instant.now(),
+                    Instant.now())));
+
+    var result = service.flashcardsFromSimulation(workspaceId, competitionId, simulation.id());
+
+    assertThat(result.criados()).isZero();
+    assertThat(result.ignorados()).isOne();
+    org.mockito.Mockito.verify(store, org.mockito.Mockito.never()).saveFlashcard(any());
+  }
+
+  @Test
+  void truncatesAStatementThatOverflowsTheColumn() {
+    // front é varchar(600) e back varchar(2000); enunciado de questão cabe, mas nada garante isso.
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var q = answeredQuestion(competitionId, "x".repeat(900), "y".repeat(3000));
+    var simulation = answeredSimulation(competitionId, q);
+    when(store.simulation(workspaceId, simulation.id())).thenReturn(Optional.of(simulation));
+    when(store.questions(workspaceId, competitionId)).thenReturn(List.of(q));
+    when(store.flashcards(workspaceId, competitionId)).thenReturn(List.of());
+    when(store.saveFlashcard(any())).thenAnswer(i -> i.getArgument(0));
+
+    service.flashcardsFromSimulation(workspaceId, competitionId, simulation.id());
+
+    var saved = org.mockito.ArgumentCaptor.forClass(Flashcard.class);
+    org.mockito.Mockito.verify(store).saveFlashcard(saved.capture());
+    assertThat(saved.getValue().front()).hasSize(600);
+    assertThat(saved.getValue().back()).hasSize(2000);
+  }
+
+  @Test
+  void refusesToBuildCardsFromASimulationWithNoAnswers() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var q = answeredQuestion(competitionId, "Enunciado", "Justificativa");
+    var simulation =
+        new Simulation(
+            UUID.randomUUID(),
+            workspaceId,
+            competitionId,
+            "Simulado",
+            "IN_PROGRESS",
+            List.of(new SimulationItem(q.id(), "topic-1", 2, null, null)),
+            40,
+            Instant.now(),
+            null);
+    when(store.simulation(workspaceId, simulation.id())).thenReturn(Optional.of(simulation));
+    when(store.questions(workspaceId, competitionId)).thenReturn(List.of(q));
+
+    assertThatThrownBy(
+            () -> service.flashcardsFromSimulation(workspaceId, competitionId, simulation.id()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Responda as questões");
+  }
+
+  @Test
+  void doesNotBuildCardsFromAnotherCompetitionsSimulation() {
+    var service = service();
+    var workspaceId = UUID.randomUUID();
+    var competitionId = UUID.randomUUID();
+    var outra = UUID.randomUUID();
+    var q = answeredQuestion(outra, "Enunciado", "Justificativa");
+    var simulation = answeredSimulation(outra, q);
+    when(store.simulation(workspaceId, simulation.id())).thenReturn(Optional.of(simulation));
+
+    assertThatThrownBy(
+            () -> service.flashcardsFromSimulation(workspaceId, competitionId, simulation.id()))
+        .isInstanceOf(StudyApplicationService.NotFound.class);
+  }
+
   @Test
   void startsOnboardingAtCompetitionWhenWorkspaceIsEmpty() {
     var service = service();

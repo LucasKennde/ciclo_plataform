@@ -445,6 +445,21 @@ export class ApiClient {
   }): Observable<Flashcard> {
     return this.http.post<Flashcard>('/api/v1/flashcards', body);
   }
+
+  /**
+   * Gera um flashcard por questão respondida do simulado. Não usa IA e não duplica se repetido.
+   */
+  flashcardsFromSimulation(
+    competitionId: string,
+    simulationId: string,
+  ): Observable<{ simulationId: string; criados: number; ignorados: number; erros: number }> {
+    return this.http.post<{
+      simulationId: string;
+      criados: number;
+      ignorados: number;
+      erros: number;
+    }>(`/api/v1/competitions/${competitionId}/flashcards/from-simulation/${simulationId}`, {});
+  }
   deleteFlashcard(id: string): Observable<void> {
     return this.http.delete<void>(`/api/v1/flashcards/${id}`);
   }

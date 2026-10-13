@@ -804,6 +804,89 @@ public class StudyApplicationService {
     return mutateSession(workspaceId, competitionId, sessionId, session -> session.complete(now));
   }
 
+  /**
+   * Gera um flashcard por questão do simulado.
+   *
+   * <p>Não usa IA de propósito: enunciado, gabarito e justificativa já estão no banco, e montar o
+   * cartão por conta própria é determinístico e gratuito. Reaproveitar o enunciado como pergunta e
+   * a justificativa como resposta é o formato que exige recordação ativa, que é o que o flashcard
+   * serve.
+   *
+   * <p>O `front` é a chave de deduplicação: rodar duas vezes no mesmo simulado não duplica a pilha.
+   */
+  public FlashcardsFromSimulation flashcardsFromSimulation(
+      UUID workspaceId, UUID competitionId, UUID simulationId) {
+    var simulation = requireSimulation(workspaceId, simulationId);
+    if (!simulation.competitionId().equals(competitionId)) throw new NotFound();
+    var questions =
+        simulationQuestions(workspaceId, simulationId).stream()
+            .collect(java.util.stream.Collectors.toMap(Question::id, q -> q, (a, b) -> a));
+    // Só as questões já respondidas viram cartão: unanswered não tem gabarito conferido.
+    var answered =
+        simulation.items().stream().filter(item -> item.selectedIndex() != null).toList();
+    if (answered.isEmpty())
+      throw new IllegalStateException(
+          "Responda as questões antes de gerar flashcards deste simulado.");
+    var ja_existentes =
+        store.flashcards(workspaceId, competitionId).stream()
+            .map(Flashcard::front)
+            .collect(java.util.stream.Collectors.toSet());
+    int criados = 0;
+    int ignorados = 0;
+    int erros = 0;
+    for (var item : answered) {
+      var question = questions.get(item.questionId());
+      if (question == null) {
+        ignorados++;
+        continue;
+      }
+      if (item.selectedIndex() != item.correctIndex()) erros++;
+      var front = corta(question.statement(), 600);
+      if (ja_existentes.contains(front)) {
+        ignorados++;
+        continue;
+      }
+      ja_existentes.add(front);
+      store.saveFlashcard(
+          new Flashcard(
+              UUID.randomUUID(),
+              workspaceId,
+              competitionId,
+              front,
+              gabarito(question),
+              Instant.now(),
+              Instant.now()));
+      criados++;
+    }
+    return new FlashcardsFromSimulation(simulationId, criados, ignorados, erros);
+  }
+
+  /** Card verso: a alternativa correta e a justificativa, que é onde está a matéria de verdade. */
+  private static String gabarito(Question question) {
+    var correta =
+        question.correctIndex() >= 0 && question.correctIndex() < question.alternatives().size()
+            ? question.alternatives().get(question.correctIndex())
+            : "";
+    var letra = String.valueOf((char) ('A' + question.correctIndex()));
+    var texto =
+        "Gabarito: "
+            + letra
+            + ") "
+            + correta
+            + (question.explanation() == null || question.explanation().isBlank()
+                ? ""
+                : "\n\n" + question.explanation().trim());
+    return corta(texto, 2000);
+  }
+
+  /** Coluna de varchar é limite duro: enunciado longo estouraria se fosse direto. */
+  private static String corta(String value, int max) {
+    if (value == null) return "";
+    var limpo = value.trim();
+    if (limpo.length() <= max) return limpo;
+    return limpo.substring(0, max - 1).stripTrailing() + "\u2026";
+  }
+
   public Flashcard createFlashcard(
       UUID workspaceId, UUID competitionId, String front, String back) {
     var now = Instant.now();
@@ -1315,6 +1398,9 @@ public class StudyApplicationService {
       Instant completedAt,
       List<OnboardingStep> steps,
       Job processingJob) {}
+
+  public record FlashcardsFromSimulation(
+      UUID simulationId, int criados, int ignorados, int erros) {}
 
   public record UploadResult(UUID documentId, UUID jobId, String statusUrl) {}
 

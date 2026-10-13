@@ -33,6 +33,7 @@ describe('FocusService', () => {
     startSession: vi.fn(),
     pauseSession: vi.fn(),
     completeSession: vi.fn(),
+    plan: vi.fn(),
   };
 
   const build = () => {
@@ -42,7 +43,10 @@ describe('FocusService', () => {
     return TestBed.inject(FocusService);
   };
 
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
 
   it('abre uma sessão planejada sem mostrar relógio', () => {
     const focus = build();
@@ -126,6 +130,9 @@ describe('FocusService', () => {
 
     expect(api.startSession).not.toHaveBeenCalled();
     expect(focus.started()).toBe(true);
+    // O estado precisa dizer "em andamento": senão o botão oferece iniciar sobre um relógio que já
+    // está contando, e o próximo toque chamaria start em vez de pause.
+    expect(focus.running()).toBe(true);
     expect(focus.remainingMs()).not.toBeNull();
     focus.close();
   });
@@ -141,6 +148,115 @@ describe('FocusService', () => {
     expect(result?.sessions[0].status).toBe('completed');
     expect(focus.lastPlan()?.sessions[0].status).toBe('completed');
     expect(focus.running()).toBe(false);
+  });
+
+  describe('persistência entre recarregamentos', () => {
+    it('reabre a sessão depois do F5 sem tocar no servidor', async () => {
+      // É o caso de quem estuda em outra aba e volta: o dock não pode sumir.
+      const focus = build();
+      focus.open(competitionId, session());
+      // navegador "recarregou": serviço novo, mesmo localStorage
+      localStorage.setItem(
+        'ciclo.focus.v1',
+        JSON.stringify({ competitionId, sessionId: 'session-1' }),
+      );
+      const after = TestBed.runInInjectionContext(() => new FocusService());
+      api.plan.mockReturnValue(
+        of(plan([session({ status: 'paused', startedAt: null, accumulatedSeconds: 600 })])),
+      );
+
+      await after.restore();
+
+      expect(after.session()?.id).toBe('session-1');
+      // 10 min investidos de 50: o tempo veio do servidor, não do navegador.
+      expect(after.remainingMs()).toBe(40 * 60_000);
+      expect(api.startSession).not.toHaveBeenCalled();
+      after.close();
+    });
+
+    it('retoma a contagem de uma sessão que estava em andamento', async () => {
+      const focus = build();
+      const pointer = { competitionId, sessionId: 'session-1' };
+      localStorage.setItem('ciclo.focus.v1', JSON.stringify(pointer));
+      const after = TestBed.runInInjectionContext(() => new FocusService());
+      api.plan.mockReturnValue(
+        of(plan([session({ status: 'in_progress', startedAt: new Date().toISOString() })])),
+      );
+
+      await after.restore();
+
+      expect(after.running()).toBe(true);
+      expect(after.remainingMs()).toBeGreaterThan(49 * 60_000);
+      after.close();
+    });
+
+    it('esquece a sessão se ela foi concluída em outro lugar', async () => {
+      const focus = build();
+      localStorage.setItem(
+        'ciclo.focus.v1',
+        JSON.stringify({ competitionId, sessionId: 'session-1' }),
+      );
+      const after = TestBed.runInInjectionContext(() => new FocusService());
+      api.plan.mockReturnValue(of(plan([session({ status: 'completed' })])));
+
+      await after.restore();
+
+      expect(after.session()).toBeNull();
+      expect(localStorage.getItem('ciclo.focus.v1')).toBeNull();
+    });
+
+    it('aguenta um ponteiro corrompido sem quebrar a tela', async () => {
+      const focus = build();
+      localStorage.setItem('ciclo.focus.v1', '{nao é json');
+      const after = TestBed.runInInjectionContext(() => new FocusService());
+
+      await expect(after.restore()).resolves.toBeUndefined();
+      expect(after.session()).toBeNull();
+    });
+
+    it('aguenta o servidor fora do ar e tenta de novo depois', async () => {
+      const focus = build();
+      localStorage.setItem(
+        'ciclo.focus.v1',
+        JSON.stringify({ competitionId, sessionId: 'session-1' }),
+      );
+      const after = TestBed.runInInjectionContext(() => new FocusService());
+      api.plan.mockReturnValue({
+        subscribe: (o: { error: (e: unknown) => void }) => {
+          o.error(new Error('offline'));
+          return { unsubscribe() {} };
+        },
+      } as never);
+
+      await after.restore();
+
+      expect(after.session()).toBeNull();
+      // Offline não é motivo para apagar: o servidor volta e a sessão é recuperada.
+      expect(localStorage.getItem('ciclo.focus.v1')).not.toBeNull();
+    });
+
+    it('limpa o ponteiro quando o pomodoro é concluído', async () => {
+      const focus = build();
+      focus.open(competitionId, session());
+      expect(localStorage.getItem('ciclo.focus.v1')).not.toBeNull();
+      api.completeSession.mockReturnValue(
+        of(plan([session({ status: 'completed', accumulatedSeconds: 3000 })])),
+      );
+
+      await focus.complete();
+
+      expect(localStorage.getItem('ciclo.focus.v1')).toBeNull();
+    });
+
+    it('não grava o ponteiro ao reabrir durante o restore', async () => {
+      const focus = build();
+      focus.open(competitionId, session());
+      const after = TestBed.runInInjectionContext(() => new FocusService());
+      after.open('outro-concurso', session({ id: 'session-2' }), false);
+
+      expect(localStorage.getItem('ciclo.focus.v1')).toContain(competitionId);
+      after.close();
+    });
   });
 
   it('fecha e limpa o estado', () => {

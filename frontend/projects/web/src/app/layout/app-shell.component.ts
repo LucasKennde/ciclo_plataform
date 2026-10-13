@@ -4,6 +4,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { ApiClient } from 'api-client';
 import { AuthService } from 'auth';
 import { FocusDockComponent } from '../shared/focus-dock.component';
+import { FocusService } from '../shared/focus.service';
 import { icons } from '../shared/icons';
 
 @Component({
@@ -16,6 +17,7 @@ export class AppShell {
   protected readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
   private readonly router = inject(Router);
+  private readonly focus = inject(FocusService);
   protected readonly icons = icons;
   protected readonly moreOpen = signal(false);
   protected readonly initials = computed(() =>
@@ -31,6 +33,9 @@ export class AppShell {
   ];
 
   constructor() {
+    // Recarregar a página não pode derrubar o pomodoro: o dock volta sozinho se houver sessão
+    // aberta. Precisa rodar também no meio do onboarding, senão o aluno perde o relógio ao dar F5.
+    void this.focus.restore();
     if (this.auth.user()?.role !== 'STUDENT') return;
     this.api.onboarding().subscribe({
       next: (state) => {
