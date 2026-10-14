@@ -19,6 +19,13 @@ export class AuthService {
       catchError(() => of(false)),
     );
   }
+  /**
+   * Encerra a sessão local sem chamar a API. Usado quando o refresh falha: o servidor já recusou
+   * a sessão, e tentar o logout só gastaria uma requisição que voltaria a dar 401.
+   */
+  expire() {
+    this.user.set(null);
+  }
   logout() {
     this.api.logout().subscribe({
       complete: () => {
